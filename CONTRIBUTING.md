@@ -164,9 +164,11 @@ PascalCase so the DLL gets the right file name (`#![allow(non_snake_case)]` in `
   "(adjustable)" in the line.
 - CHANGELOG follows [Keep a Changelog](https://keepachangelog.com): one short line per change,
   such as `Added X option.` or `Fixed crash when Y.` Only user-facing features and fixes belong
-  there: leave out log, debug, build and other development changes. Versions follow
-  [SemVer](https://semver.org). Bump `version` in the mod's `Cargo.toml` in the same commit
-  that turns `[Unreleased]` into a release.
+  there: leave out log, debug, build and other development changes. A line is the shortest
+  sentence that names the change (about ten words): no key names, file names, defaults or
+  "the game's"/"ordinary" qualifiers, and no second clause saying what the change does.
+  Versions follow [SemVer](https://semver.org). Bump `version` in the mod's `Cargo.toml` in the
+  same commit that turns `[Unreleased]` into a release.
 
 ## Git
 

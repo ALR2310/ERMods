@@ -161,9 +161,11 @@ cho dev, không cho người chơi; ngoại lệ là lời nhắn cố ý như
   hay "(adjustable)" vào một dòng.
 - CHANGELOG theo [Keep a Changelog](https://keepachangelog.com): mỗi thay đổi một dòng ngắn,
   ví dụ `Added X option.` hoặc `Fixed crash when Y.` Chỉ ghi tính năng và bản sửa người dùng
-  thấy được: không ghi thay đổi về log, debug, build hay phát triển. Phiên bản theo
-  [SemVer](https://semver.org). Tăng `version` trong `Cargo.toml` của mod trong cùng commit biến
-  `[Unreleased]` thành một bản phát hành.
+  thấy được: không ghi thay đổi về log, debug, build hay phát triển. Một dòng là câu ngắn nhất
+  gọi tên thay đổi (khoảng mười từ): không ghi tên key, tên file, giá trị mặc định hay các cụm
+  như "the game's"/"ordinary", và không thêm vế thứ hai giải thích thay đổi làm gì. Phiên bản
+  theo [SemVer](https://semver.org). Tăng `version` trong `Cargo.toml` của mod trong cùng commit
+  biến `[Unreleased]` thành một bản phát hành.
 
 ## Git
 
