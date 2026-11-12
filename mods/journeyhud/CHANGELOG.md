@@ -2,6 +2,12 @@
 
 ## [Unreleased]
 
+## [1.5.1] - 2026-11-12
+
+- Fixed the option to hide enemy health bars not working.
+- Fixed the HUD options not working on Mod Engine 3 with mods that replace the HUD file.
+- Fixed the map icons missing with mods that replace the menu sprites.
+
 ## [1.5.0] - 2026-11-11
 
 - Added compatibility with the Ultrawide UI Fixes mod.
