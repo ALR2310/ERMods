@@ -3,7 +3,9 @@
 //! The container formats between an archive file and a texture: BXF4 binders, DCX
 //! compression and TPF texture packs. Layouts follow SoulsFormats.
 
-use std::io;
+use std::io::{self, Read};
+
+use flate2::read::ZlibDecoder;
 
 use super::reader::{Reader, invalid};
 
@@ -74,11 +76,20 @@ impl Oodle {
 
     pub fn decompress_dcx(&self, data: &[u8]) -> io::Result<Vec<u8>> {
         let r = Reader(data);
-        if r.bytes(0, 4)? != b"DCX\0" || r.bytes(0x28, 4)? != b"KRAK" {
-            return Err(invalid("not a DCX_KRAK file"));
+        if r.bytes(0, 4)? != b"DCX\0" {
+            return Err(invalid("not a DCX file"));
         }
         let raw_len = r.u32_be(0x1C)? as usize;
         let compressed = r.bytes(0x4C, r.u32_be(0x20)? as usize)?;
+        // A mod can ship its own copy of the file, compressed with zlib instead of Kraken.
+        if r.bytes(0x28, 4)? == b"DFLT" {
+            let mut raw = Vec::with_capacity(raw_len);
+            ZlibDecoder::new(compressed).read_to_end(&mut raw)?;
+            return Ok(raw);
+        }
+        if r.bytes(0x28, 4)? != b"KRAK" {
+            return Err(invalid("not a DCX_KRAK or DCX_DFLT file"));
+        }
         let mut raw = vec![0u8; raw_len];
         const FUZZ_SAFE_YES: i32 = 1;
         const DECODE_UNTHREADED: i32 = 3;

@@ -25,7 +25,7 @@ pub fn install() {
         return;
     }
     std::thread::spawn(|| {
-        if hook::install(MOVIE, edit) {
+        if hook::install(MOVIE, b"EnemyTag0", edit) {
             logger::log("HudMovie: hooked");
         }
     });

@@ -465,7 +465,7 @@ pub fn run() {
     if bars == VANILLA_BARS {
         return;
     }
-    if install_extended(bars) && hook::install(MOVIE, edit_movie) {
+    if install_extended(bars) && hook::install(MOVIE, b"EnemyTag0", edit_movie) {
         logger::log(&format!("HubHpBars: {bars}"));
     }
 }

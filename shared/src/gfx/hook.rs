@@ -39,6 +39,7 @@ type Edit = fn(&[u8]) -> Option<Vec<u8>>;
 
 struct Target {
     file_name: &'static str,
+    marker: &'static [u8],
     edit: Edit,
 }
 
@@ -51,10 +52,12 @@ static PUBLISH: Mutex<()> = Mutex::new(());
 
 /// Repoints the opener's slot so the movie whose path ends in `file_name`
 /// (case-insensitive) is replaced by `edit(original bytes)` when it is `Some`.
+/// A file that a mod loader serves under a path of its own (`\\me3...`) has lost
+/// its name, so there the movie is the one whose bytes contain `marker`.
 /// One movie per DLL. `false` (nothing changed) if the opener or its slot isn't
 /// found, or this was called before.
-pub fn install(file_name: &'static str, edit: Edit) -> bool {
-    if TARGET.set(Target { file_name, edit }).is_err() {
+pub fn install(file_name: &'static str, marker: &'static [u8], edit: Edit) -> bool {
+    if TARGET.set(Target { file_name, marker, edit }).is_err() {
         return false;
     }
     let Some(anchor) = memscan::wait_for_pattern_in_module(
@@ -100,6 +103,15 @@ unsafe extern "system" fn open_detour(
     file
 }
 
+/// Prefix of the paths me3 gives a file it serves from a mod folder.
+const LOADER_PREFIX: &[u8] = b"\\\\me3";
+
+/// Whether the NUL-terminated `path` starts with `prefix`.
+unsafe fn path_starts_with(path: *const u8, prefix: &[u8]) -> bool {
+    // SAFETY: the opener's paths are NUL-terminated, so a prefix that differs stops at the NUL.
+    !path.is_null() && prefix.iter().enumerate().all(|(i, &b)| unsafe { *path.add(i) } == b)
+}
+
 /// Whether the NUL-terminated `path` ends with `name`, ignoring case.
 unsafe fn path_ends_with(path: *const u8, name: &str) -> bool {
     if path.is_null() {
@@ -119,11 +131,15 @@ unsafe fn path_ends_with(path: *const u8, name: &str) -> bool {
 unsafe fn replace_movie(file: *mut c_void, path: *const u8) {
     let Some(target) = TARGET.get() else { return };
     // SAFETY: `path` is the NUL-terminated string the game passed to the opener.
-    if file.is_null() || !unsafe { path_ends_with(path, target.file_name) } {
+    // SAFETY: same string as above.
+    let by_name = unsafe { path_ends_with(path, target.file_name) };
+    // SAFETY: same string as above.
+    if file.is_null() || !(by_name || unsafe { path_starts_with(path, LOADER_PREFIX) }) {
         return;
     }
     let base = file as usize;
     if conflict::readable_len(base) < FILE_OBJECT_LEN {
+        logger::warn(&format!("Movie: {} opened, file object unreadable", target.file_name));
         return;
     }
     let field = |offset: usize| (base + offset) as *mut u8;
@@ -150,11 +166,21 @@ unsafe fn replace_movie(file: *mut c_void, path: *const u8) {
         ));
         return;
     }
+    if !by_name {
+        // SAFETY: `bytes..bytes + length` is readable, checked above.
+        let source = unsafe { std::slice::from_raw_parts(bytes as *const u8, length) };
+        if !source.windows(target.marker.len()).any(|w| w == target.marker) {
+            return;
+        }
+    }
     let _guard = PUBLISH.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
     let replacement = REPLACEMENT.get_or_init(|| {
         // SAFETY: `bytes..bytes + length` is readable, checked above.
         let source = unsafe { std::slice::from_raw_parts(bytes as *const u8, length) };
-        let edited = (target.edit)(source)?;
+        let Some(edited) = (target.edit)(source) else {
+            logger::log(&format!("Movie: {} needs no edit", target.file_name));
+            return None;
+        };
         logger::log(&format!(
             "Movie: {} patched ({length} -> {} bytes)",
             target.file_name,
