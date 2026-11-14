@@ -2,6 +2,8 @@
 
 ## [Unreleased]
 
+## [1.5.2] - 2026-11-15
+
 - Fixed the game crashing with ERSS 4, 5 and 6, QuestPath and the Steam overlay.
 - Improved compatibility with other overlay mods.
 
