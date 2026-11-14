@@ -9,6 +9,8 @@
 
 # Local tooling
 .claude/*
+.agents/*
+.codex/*
 .vscode/settings.json
 .idea/
 
