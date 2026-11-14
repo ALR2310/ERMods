@@ -15,7 +15,7 @@ pub use input_block::{InputExtension, set_extension as set_input_extension};
 use std::sync::OnceLock;
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 
-use hudhook::hooks::dx12::ImguiDx12Hooks;
+use hudhook::hooks::dx12::{ImguiDx12GameHooks, ImguiDx12Hooks, set_game_present};
 use hudhook::imgui::{
     self, Condition, Context, FontConfig, FontGlyphRanges, FontSource, Io, MouseButton,
 };
@@ -667,6 +667,39 @@ fn install_cursor_hooks() {
     }
 }
 
+/// Start of the game's function that calls `IDXGISwapChain::Present`; unique on 2.7.0.0 to 2.7.2.0.
+/// The two `E8` after the stores are calls to its trivial getters (see [`QUEUE_STATE_CALL_OFFSET`]).
+const GAME_PRESENT_PATTERN: &str = "40 53 56 41 54 48 81 EC 90 00 00 00 48 83 39 00 45 8B E0 48 8B F2 48 8B D9 75 0E B0 05 48 81 C4 90 00 00 00 41 5C 5E 5B C3 48 83 BC 24 D8 00 00 00 FF 75 0E B0 08 48 81 C4 90 00 00 00 41 5C 5E 5B C3 4C 89 B4 24 C0 00 00 00 4C 89 BC 24 C8 00 00 00 E8 ?? ?? ?? ?? 4C 8B F8 E8 ?? ?? ?? ?? 48 8B C8 E8 ?? ?? ?? ?? F6 43 32 04";
+
+/// The call in the function to `lea rax, [queue state]; ret`: the state holds the direct command
+/// queue at `+8`.
+const QUEUE_STATE_CALL_OFFSET: usize = 0x5A;
+
+fn locate_game_present() -> Option<(usize, usize)> {
+    let entry = crate::memscan::find_pattern_in_module(GAME_PRESENT_PATTERN)?;
+    // SAFETY: the pattern matched, so the call lies inside the function's readable code.
+    let getter = unsafe { crate::codepatch::rel32_target(entry.add(QUEUE_STATE_CALL_OFFSET)) }?;
+    Some((entry as usize, getter as usize))
+}
+
+/// Hooks the game's present function, or DXGI when that function is not found (an exe build
+/// the pattern does not match).
+pub fn apply_dx12_hooks(
+    render_loop: impl ImguiRenderLoop + Send + Sync + 'static,
+) -> Result<(), hudhook::mh::MH_STATUS> {
+    let builder = Hudhook::builder();
+    match locate_game_present() {
+        Some((present, queue_state_getter)) => {
+            set_game_present(present, queue_state_getter);
+            builder.with::<ImguiDx12GameHooks>(render_loop).build().apply()
+        }
+        None => {
+            logger::log("Overlay: the game's present function was not found, hooking DXGI");
+            builder.with::<ImguiDx12Hooks>(render_loop).build().apply()
+        }
+    }
+}
+
 /// Installs the DX12 ImGui overlay and cursor/mouse-block hooks. Call once
 /// from `DllMain`'s worker thread.
 pub fn install<F>(cfg: WindowConfig, draw_body: F)
@@ -693,7 +726,8 @@ where
         layout_seen: None,
         layout_saved: None,
     };
-    match Hudhook::builder().with::<ImguiDx12Hooks>(loop_state).build().apply() {
+    let applied = apply_dx12_hooks(loop_state);
+    match applied {
         Ok(()) => {
             logger::log("Menu: DX12 hooks applied");
             install_input_hooks();

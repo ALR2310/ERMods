@@ -3,7 +3,7 @@
 use std::ffi::c_void;
 use std::fmt::{self, Display};
 use std::mem;
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::OnceLock;
 
 use imgui::Context;
@@ -1148,6 +1148,131 @@ fn get_target_addrs() -> (
         resize_buffers1_ptr,
         cqecl_ptr,
     )
+}
+
+type GamePresentType =
+    unsafe extern "system" fn(*mut *mut c_void, usize, u32, usize, i32, i64) -> u8;
+
+static GAME_PRESENT_TARGET: AtomicUsize = AtomicUsize::new(0);
+static GAME_QUEUE_GETTER: AtomicUsize = AtomicUsize::new(0);
+static GAME_PRESENT_TRAMPOLINE: AtomicUsize = AtomicUsize::new(0);
+
+/// Tells [`ImguiDx12GameHooks`] where the game's own present function is and which function
+/// returns the game's queue state (`+8` holds the direct command queue). Call before building.
+pub fn set_game_present(present: usize, queue_state_getter: usize) {
+    GAME_PRESENT_TARGET.store(present, Ordering::Relaxed);
+    GAME_QUEUE_GETTER.store(queue_state_getter, Ordering::Relaxed);
+}
+
+unsafe fn game_command_queue() -> Option<ID3D12CommandQueue> {
+    let getter: unsafe extern "system" fn() -> *const *mut c_void =
+        mem::transmute(GAME_QUEUE_GETTER.load(Ordering::Relaxed));
+    let state = getter();
+    if state.is_null() {
+        return None;
+    }
+    let raw = *state.add(1);
+    if raw.is_null() {
+        return None;
+    }
+    command_queue_from_unknown(IUnknown::from_raw_borrowed(&raw)?)
+}
+
+unsafe fn render_game_frame(swap_chain_slot: *mut *mut c_void) -> Result<()> {
+    if swap_chain_slot.is_null() || (*swap_chain_slot).is_null() {
+        return Ok(());
+    }
+    let Some(swap_chain) = IDXGISwapChain::from_raw_borrowed(&*swap_chain_slot) else {
+        return Ok(());
+    };
+    let swap_chain3 = swap_chain.cast::<IDXGISwapChain3>()?;
+
+    if !INIT_STATE.is_done() {
+        if let Some(command_queue) = game_command_queue() {
+            INIT_STATE.lock().set_complete(&swap_chain3, &command_queue);
+            crate::color::patch_set_color_space1(&swap_chain3);
+        }
+    }
+
+    render(&swap_chain3)
+}
+
+unsafe extern "system" fn game_present_impl(
+    swap_chain_slot: *mut *mut c_void,
+    a2: usize,
+    sync_interval: u32,
+    a4: usize,
+    a5: i32,
+    a6: i64,
+) -> u8 {
+    let _hook_ejection_guard = HOOK_EJECTION_BARRIER.acquire_ejection_guard();
+
+    if let Err(e) = render_game_frame(swap_chain_slot) {
+        util::print_dxgi_debug_messages();
+        error!("Render error: {e:?}");
+    }
+
+    let trampoline = GAME_PRESENT_TRAMPOLINE.load(Ordering::Relaxed);
+    if trampoline == 0 {
+        return 5;
+    }
+    let present: GamePresentType = mem::transmute(trampoline);
+    let result = present(swap_chain_slot, a2, sync_interval, a4, a5, a6);
+
+    if EJECT_REQUESTED.load(Ordering::SeqCst) {
+        perform_eject();
+    }
+
+    result
+}
+
+/// Hook on the game's own function that calls `IDXGISwapChain::Present`, instead of the DXGI
+/// functions: nothing in `dxgi.dll` or in a wrapper of the swap chain is touched, so mods that
+/// wrap or patch DXGI cannot clash with it. The swap chain and the command queue come from the
+/// game's own data. Set the addresses with [`set_game_present`] first.
+pub struct ImguiDx12GameHooks([MhHook; 1]);
+
+impl ImguiDx12GameHooks {
+    unsafe fn new<T>(t: T) -> Self
+    where
+        T: ImguiRenderLoop + Send + Sync + 'static,
+    {
+        let target = GAME_PRESENT_TARGET.load(Ordering::Relaxed);
+        assert!(
+            target != 0 && GAME_QUEUE_GETTER.load(Ordering::Relaxed) != 0,
+            "set_game_present was not called"
+        );
+
+        let hook = MhHook::new(target as *mut _, game_present_impl as *mut _)
+            .expect("couldn't create the game's present hook");
+        RENDER_LOOP.get_or_init(|| Box::new(t));
+        GAME_PRESENT_TRAMPOLINE.store(hook.trampoline() as usize, Ordering::Relaxed);
+
+        Self([hook])
+    }
+}
+
+impl Hooks for ImguiDx12GameHooks {
+    fn from_render_loop<T>(t: T) -> Box<Self>
+    where
+        Self: Sized,
+        T: ImguiRenderLoop + Send + Sync + 'static,
+    {
+        Box::new(unsafe { Self::new(t) })
+    }
+
+    fn hooks(&self) -> &[MhHook] {
+        &self.0
+    }
+
+    unsafe fn unhook(&mut self) {
+        GAME_PRESENT_TRAMPOLINE.store(0, Ordering::Relaxed);
+        PIPELINE.take().map(|p| p.into_inner().take());
+        RENDER_LOOP.take();
+
+        *ACTIVE_CONTEXT.lock() = None;
+        INIT_STATE.reset();
+    }
 }
 
 /// Hooks for DirectX 12.

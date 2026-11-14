@@ -2,6 +2,9 @@
 
 ## [Unreleased]
 
+- Fixed the game crashing with ERSS 4, 5 and 6, QuestPath and the Steam overlay.
+- Improved compatibility with other overlay mods.
+
 ## [1.5.1] - 2026-11-12
 
 - Fixed the option to hide enemy health bars not working.

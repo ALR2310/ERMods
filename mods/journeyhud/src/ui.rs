@@ -5,12 +5,11 @@
 
 use std::sync::atomic::{AtomicU32, Ordering};
 
-use hudhook::hooks::dx12::ImguiDx12Hooks;
 use hudhook::imgui::{Context, DrawListMut, Io, Ui};
 use hudhook::windows::Win32::Foundation::{HWND, LPARAM, WPARAM};
-use hudhook::{BeforeWndProc, Hudhook, ImguiRenderLoop, MessageFilter, RenderContext};
+use hudhook::{BeforeWndProc, ImguiRenderLoop, MessageFilter, RenderContext};
 
-use shared::{input, logger};
+use shared::{input, logger, overlay};
 
 use crate::config;
 use crate::drag::Drag;
@@ -1108,7 +1107,7 @@ pub fn install() {
             std::thread::sleep(std::time::Duration::from_secs(1));
         }
     });
-    match Hudhook::builder().with::<ImguiDx12Hooks>(HudRenderLoop::default()).build().apply() {
+    match overlay::apply_dx12_hooks(HudRenderLoop::default()) {
         Ok(()) => logger::log("Overlay: DX12 hooks applied"),
         Err(e) => {
             logger::error(&format!("Overlay: DX12 hooks failed ({e:?}), overlay unavailable"))

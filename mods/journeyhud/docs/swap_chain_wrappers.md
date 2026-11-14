@@ -1,7 +1,9 @@
 # Overlay start with mods that wrap the swap chain
 
 Status: **Confirmed** in game on 2.7.2.0 with two third-party mods that wrap the swap chain (both loaded, `LoadDelay` 5000):
-the overlay starts. Conventions: [research notes](../../../docs/research/README.md). Code: `vendor/hudhook/src/hooks/dx12.rs`
+the overlay starts. Does not cover ERSS 5.1.0, which wraps the composition swap chain too; the overlay now hooks the game's own
+Present function and no dummy swap chain is made, see [game_present_hook.md](game_present_hook.md) (this fix stays as the
+fallback when that function is not found). Conventions: [research notes](../../../docs/research/README.md). Code: `vendor/hudhook/src/hooks/dx12.rs`
 (`unwrap_dummy_swap_chain`, listed in `vendor/README.md`).
 
 ## Problem

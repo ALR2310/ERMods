@@ -18,6 +18,9 @@ One local change, everything else is upstream:
   A mod that wraps the game's swap chains (some third-party mods hook the factory) wraps the dummy
   one too, so the hook would land on the wrapper and never find the queue in its memory; then a composition
   swap chain, which those mods do not wrap, gives the real addresses (`unwrap_dummy_swap_chain`).
+- `src/hooks/dx12.rs` (same file): `ImguiDx12GameHooks` and `set_game_present` hook the game's own function that calls
+  `Present` instead of DXGI (swap chain and queue come from the game's data), so nothing wraps or patches DXGI. See
+  `mods/journeyhud/docs/game_present_hook.md`.
 - `src/lib.rs`: `pub mod color;`.
 
 Default is `Sdr`, so a mod that never calls `set` renders exactly as before. Why: see
