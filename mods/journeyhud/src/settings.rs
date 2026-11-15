@@ -22,7 +22,9 @@ pub enum TimerStyle {
 }
 
 impl TimerStyle {
-    fn parse(name: &str) -> Self {
+    pub const NAMES: [&'static str; 3] = ["All", "Shortest", "Longest"];
+
+    pub fn parse(name: &str) -> Self {
         match name.trim().to_ascii_lowercase().as_str() {
             "shortest" => Self::Shortest,
             "longest" => Self::Longest,
@@ -175,6 +177,10 @@ pub fn timer_style() -> TimerStyle {
         2 => TimerStyle::Longest,
         _ => TimerStyle::All,
     }
+}
+
+pub fn set_timer_style(index: u8) {
+    TIMER_STYLE.store(index.min(2), Ordering::Relaxed);
 }
 
 /// Whether the player's buildup gauge is moved to the top-left under the status icons.

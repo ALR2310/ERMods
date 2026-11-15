@@ -2,6 +2,8 @@
 
 ## [Unreleased]
 
+- Added an option to choose how effect timers show when effects share an icon.
+
 ## [1.5.2] - 2026-11-15
 
 - Fixed the game crashing with ERSS 4, 5 and 6, QuestPath and the Steam overlay.

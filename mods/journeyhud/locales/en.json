@@ -26,6 +26,15 @@
     "label": "Your effects",
     "help": "Show the time left of your own effects under the game's status icons."
   },
+  "timer_style": {
+    "label": "Shared icon timers",
+    "help": "Which times to show under an icon that several of your effects share.",
+    "options": {
+      "all": "All",
+      "shortest": "Shortest",
+      "longest": "Longest"
+    }
+  },
   "player_buildup": {
     "label": "Your status buildup",
     "help": "Move your own buildup gauge (poison, rot...) to the top left, under the status icons."

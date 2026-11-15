@@ -26,6 +26,15 @@
     "label": "Hiệu ứng của bạn",
     "help": "Hiện thời gian còn lại của các hiệu ứng của bạn dưới hàng icon trạng thái của game."
   },
+  "timer_style": {
+    "label": "Thời gian icon chung",
+    "help": "Thời gian nào hiện dưới một icon mà nhiều hiệu ứng của bạn dùng chung.",
+    "options": {
+      "all": "Tất cả",
+      "shortest": "Ngắn nhất",
+      "longest": "Dài nhất"
+    }
+  },
   "player_buildup": {
     "label": "Thanh tích tụ của bạn",
     "help": "Dời thanh tích tụ trạng thái của bạn (độc, thối đỏ...) lên góc trái trên, dưới hàng icon trạng thái."

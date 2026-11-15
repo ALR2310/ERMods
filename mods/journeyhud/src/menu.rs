@@ -4,7 +4,7 @@
 //!
 //! ```text
 //! Journey HUD                -> two pages:
-//!   Target panel             -> Target bar on/off, Health numbers on/off, Status buildup on/off, Effects on/off (target, you),
+//!   Target panel             -> Target bar on/off, Health numbers on/off, Status buildup on/off, Effects on/off (target, you), Shared icon timers choice,
 //!                               Bar length slider, Size stepped, Right margin slider, Top margin slider
 //!   Minimap                  -> Minimap on/off, Map, Graces, Points, Beacons, Map for Goblins,
 //!                               Co-op players, Spirits, Enemies, Full map, Clock, Deaths, Trail, Compass, Turn with
@@ -57,6 +57,11 @@ static EFFECTS_PLAYER: Setting = Setting {
     key: "Player.EffectTimer",
     format: menu::format_bool,
     apply: Some(settings::set_effects_player),
+};
+static TIMER_STYLE: Setting = Setting {
+    key: "Player.EffectTimerStyle",
+    format: |index| settings::TimerStyle::NAMES[usize::from(index).min(2)].to_string(),
+    apply: Some(settings::set_timer_style),
 };
 static PLAYER_BUILDUP: Setting = Setting {
     key: "HUD.Buildup.Enabled",
@@ -226,6 +231,20 @@ fn build(b: &mut MenuBuilder) -> Result<(), String> {
         &t("effects_player.help"),
         &EFFECTS_PLAYER,
         || config::get().player.effect_timer as u8,
+    )?;
+    let styles = [
+        t("timer_style.options.all"),
+        t("timer_style.options.shortest"),
+        t("timer_style.options.longest"),
+    ];
+    let styles: Vec<&str> = styles.iter().map(String::as_str).collect();
+    b.choice(
+        target,
+        &t("timer_style.label"),
+        &t("timer_style.help"),
+        &styles,
+        &TIMER_STYLE,
+        || settings::TimerStyle::parse(&config::get().player.effect_timer_style) as u8,
     )?;
     b.toggle(
         target,
@@ -411,6 +430,7 @@ mod tests {
             &RUNE_COUNTER,
             &EFFECTS_TARGET,
             &EFFECTS_PLAYER,
+            &TIMER_STYLE,
             &MINIMAP,
             &MINIMAP_MAP,
             &MINIMAP_GRACES,
