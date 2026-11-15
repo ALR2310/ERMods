@@ -116,6 +116,9 @@ const FADE_RATE: f32 = 12.0;
 
 /// Opacity of the target panel this frame, 0 to 1, as `f32` bits (set before it is drawn).
 static PANEL_ALPHA: AtomicU32 = AtomicU32::new(0x3F80_0000);
+/// Most time lines under one icon last frame; the buildup gauge sits below them.
+static TIME_LINES: AtomicU32 = AtomicU32::new(1);
+const ICON_TIME_LINES: usize = 3;
 
 /// `color` with the panel's opacity applied.
 /// `color` with its alpha times `alpha`.
@@ -669,7 +672,9 @@ fn gauge_origin(edge: f32) -> [f32; 2] {
         .take_while(|&slot| crate::state_icons::icon(slot).is_some())
         .count();
     let last_row = used.saturating_sub(1) / GAME_ICONS_PER_ROW;
-    let times = if crate::settings::effects_player() { GAME_ICON_TIME * 1.5 } else { 0.0 };
+    let lines = TIME_LINES.load(Ordering::Relaxed) as f32;
+    let times =
+        if crate::settings::effects_player() { GAME_ICON_TIME * (lines + 0.5) } else { 0.0 };
     let [offset_x, offset_y] = crate::settings::player_offset();
     [
         GAME_ICONS_CENTER_X - GAME_ICONS_PITCH / 2.0 - edge + offset_x,
@@ -704,10 +709,8 @@ fn effect_time(left: f32) -> String {
     }
 }
 
-/// The time left under each icon of the game's own row (the effects of the player, one icon per
-/// slot): for a slot's icon, the effect with that icon that lasts longest (the "Cycled" helper rows
-/// of a buff have a tenth of a second and are left out of the list); an effect without an end
-/// shows nothing.
+/// The time left under each icon of the game's own row; effects sharing an icon get the lines
+/// `Player.EffectTimerStyle` says, shortest first. An effect without an end shows nothing.
 fn draw_icon_times(ui: &Ui, effects: &[Effect], alpha: f32, layout: &Layout) {
     let res = layout.area[3] / BASE_HEIGHT;
     let em = GAME_ICON_TIME * res;
@@ -717,11 +720,13 @@ fn draw_icon_times(ui: &Ui, effects: &[Effect], alpha: f32, layout: &Layout) {
                 + (slot % GAME_ICONS_PER_ROW) as f32 * GAME_ICONS_PITCH)
                 * res
     };
-    let time_below = |label: &str, center: f32, row: usize, alpha: f32| {
+    let time_below = |label: &str, center: f32, row: usize, line: usize, alpha: f32| {
         let size = text::measure(ui, label, em);
         let pos = [
             (center - size[0] / 2.0).round(),
-            (layout.area[1] + (GAME_ICONS_BOTTOM + row as f32 * GAME_ICONS_ROW_PITCH) * res)
+            (layout.area[1]
+                + (GAME_ICONS_BOTTOM + row as f32 * GAME_ICONS_ROW_PITCH) * res
+                + line as f32 * em)
                 .round(),
         ];
         text::add_shadowed(
@@ -733,19 +738,38 @@ fn draw_icon_times(ui: &Ui, effects: &[Effect], alpha: f32, layout: &Layout) {
             res.max(1.0),
         );
     };
+    let mut tallest = 1;
     for slot in 0..crate::state_icons::SLOTS {
         let Some(icon) = crate::state_icons::icon(slot) else {
             break;
         };
-        let left = effects
+        let mut lefts: Vec<f32> = effects
             .iter()
-            .filter(|e| e.kind.is_none() && e.icon == icon && !e.permanent)
+            .filter(|e| e.kind.is_none() && e.icon == icon && !e.permanent && e.left > 0.0)
             .map(|e| e.left)
-            .fold(f32::NEG_INFINITY, f32::max);
-        if left > 0.0 && alpha > 0.01 {
-            time_below(&effect_time(left), centered(slot), slot / GAME_ICONS_PER_ROW, alpha);
+            .collect();
+        lefts.sort_by(f32::total_cmp);
+        match crate::settings::timer_style() {
+            crate::settings::TimerStyle::All => lefts.truncate(ICON_TIME_LINES),
+            crate::settings::TimerStyle::Shortest => lefts.truncate(1),
+            crate::settings::TimerStyle::Longest => {
+                lefts = lefts.split_off(lefts.len().saturating_sub(1))
+            }
+        }
+        tallest = tallest.max(lefts.len());
+        if alpha > 0.01 {
+            for (line, left) in lefts.into_iter().enumerate() {
+                time_below(
+                    &effect_time(left),
+                    centered(slot),
+                    slot / GAME_ICONS_PER_ROW,
+                    line,
+                    alpha,
+                );
+            }
         }
     }
+    TIME_LINES.store(tallest as u32, Ordering::Relaxed);
 }
 
 /// Where the cells of a row of effects start and how big they are.

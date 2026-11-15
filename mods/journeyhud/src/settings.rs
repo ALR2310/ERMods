@@ -2,7 +2,7 @@
 //! change from the in-game menu applies at once (the file is written a second
 //! later by the menu's saver). Defaults and meaning: `JourneyHUD.toml`.
 
-use std::sync::atomic::{AtomicBool, AtomicI32, AtomicU32, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicI32, AtomicU8, AtomicU32, Ordering};
 
 use shared::input::parse_virtual_key;
 
@@ -13,6 +13,23 @@ const VK_OEM_MINUS: i32 = 0xBD;
 
 /// How many keys each zoom direction takes (0 = none).
 const ZOOM_KEYS: usize = 4;
+
+#[derive(Clone, Copy, PartialEq, Debug)]
+pub enum TimerStyle {
+    All,
+    Shortest,
+    Longest,
+}
+
+impl TimerStyle {
+    fn parse(name: &str) -> Self {
+        match name.trim().to_ascii_lowercase().as_str() {
+            "shortest" => Self::Shortest,
+            "longest" => Self::Longest,
+            _ => Self::All,
+        }
+    }
+}
 
 /// The minimap ranges (meters from the center to the rim) the zoom keys step through.
 const ZOOM_LEVELS: [i32; 3] = [50, 100, 200];
@@ -29,6 +46,7 @@ static RUNE_OFFSET_Y: AtomicI32 = AtomicI32::new(20);
 static EFFECTS_TARGET: AtomicBool = AtomicBool::new(true);
 static EFFECTS_PLAYER: AtomicBool = AtomicBool::new(true);
 static PLAYER_BUILDUP: AtomicBool = AtomicBool::new(true);
+static TIMER_STYLE: AtomicU8 = AtomicU8::new(TimerStyle::All as u8);
 /// `f32` bits.
 static PLAYER_SCALE: AtomicU32 = AtomicU32::new(0x3F33_3333);
 static WIDTH: AtomicI32 = AtomicI32::new(250);
@@ -95,6 +113,8 @@ pub fn load(config: &Config) {
     set_rune_offset_y(f64::from(rune.offset_y));
     set_effects_target(target.effects as u8);
     set_effects_player(config.player.effect_timer as u8);
+    TIMER_STYLE
+        .store(TimerStyle::parse(&config.player.effect_timer_style) as u8, Ordering::Relaxed);
     let buildup = &config.hud.buildup;
     set_player_buildup(buildup.enabled as u8);
     set_player_scale(buildup.scale);
@@ -147,6 +167,14 @@ pub fn effects_target() -> bool {
 /// Whether the effects of the player are shown.
 pub fn effects_player() -> bool {
     EFFECTS_PLAYER.load(Ordering::Relaxed)
+}
+
+pub fn timer_style() -> TimerStyle {
+    match TIMER_STYLE.load(Ordering::Relaxed) {
+        1 => TimerStyle::Shortest,
+        2 => TimerStyle::Longest,
+        _ => TimerStyle::All,
+    }
 }
 
 /// Whether the player's buildup gauge is moved to the top-left under the status icons.
@@ -590,7 +618,15 @@ pub fn set_minimap_size(value: f64) {
 
 #[cfg(test)]
 mod tests {
-    use super::next_range;
+    use super::{TimerStyle, next_range};
+
+    #[test]
+    fn the_timer_style_is_read_by_name_and_defaults_to_all() {
+        assert_eq!(TimerStyle::parse(" Shortest "), TimerStyle::Shortest);
+        assert_eq!(TimerStyle::parse("LONGEST"), TimerStyle::Longest);
+        assert_eq!(TimerStyle::parse("all"), TimerStyle::All);
+        assert_eq!(TimerStyle::parse("nonsense"), TimerStyle::All);
+    }
 
     #[test]
     fn zooming_in_steps_to_smaller_ranges_and_wraps() {

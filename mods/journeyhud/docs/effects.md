@@ -87,8 +87,11 @@ permanent), `enableLifeTime`, `stateInfo`, `dispIconNonactive`.
 - **Player**: no second row of icons. The game's row `PlayerHUD/Gauge/Equip/Fade/Item_0_0..Item_0_41` is
   **42 cells in rows of 14** (cell i at x = 10 + 42 * (i mod 14), y = 15 + 41 * (i div 14) in 1080p units), each
   only an `Icon` clip, no text field. `ui::draw_icon_times` draws the time text just under each icon of the game
-  (slot k centred at x = 155.5 + 42 * k, y 142, measured on a screenshot): for the icon of a slot it takes the
-  effect with that icon that has the **most time left**; a permanent one has no text. Key `Player.EffectTimer`. Limit:
+  (slot k centred at x = 155.5 + 42 * k, y 142, measured on a screenshot): for the icon of a slot it writes one line per
+  effect with that icon, **shortest first**, at most 3 (two effects with one icon share a slot, for example Golden
+  Vow and a damage Physik Tear: `1:19` over `2:59`); the buildup gauge moves down by the extra lines. A permanent
+  one has no text. `Player.EffectTimerStyle` = `Shortest` or `Longest` writes only that one line (`All` is the
+  default). Key `Player.EffectTimer`. Limit:
   the position follows the default HUD layout (a different HUD size in the game options shifts the text); not
   tried.
 - **Fading with the game's row**: the game hides the row (and the HP/FP bars) outside fights; the update function

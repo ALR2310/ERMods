@@ -89,6 +89,7 @@ pub struct Target {
 #[serde(default, deny_unknown_fields, rename_all = "PascalCase")]
 pub struct Player {
     pub effect_timer: bool,
+    pub effect_timer_style: String,
 }
 
 #[derive(Deserialize, Serialize, Default, Debug, Clone, PartialEq)]
