@@ -52,8 +52,18 @@ pub fn run() {
         return;
     }
 
-    patch::apply(FEATURE, "map_check", MAP_CHECK_PATTERN, 0, &MAP_CHECK_PATCHED);
-    patch::apply(FEATURE, "warp_block", WARP_BLOCK_PATTERN, 0, &WARP_BLOCK_PATCHED);
+    // ErdTools finds both sites by signature and makes the same two patches: it has to scan first.
+    // Its own thread, so the rest of the feature does not wait.
+    std::thread::spawn(|| {
+        patch::apply_after_other_mods(
+            FEATURE,
+            "map_check",
+            MAP_CHECK_PATTERN,
+            0,
+            &MAP_CHECK_PATCHED,
+        );
+        patch::apply(FEATURE, "warp_block", WARP_BLOCK_PATTERN, 0, &WARP_BLOCK_PATCHED);
+    });
 
     let Some(slot) = resolve_field_area_slot() else {
         logger::error(

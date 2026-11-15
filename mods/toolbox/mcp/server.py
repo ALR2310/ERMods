@@ -88,15 +88,10 @@ def _loaded_module_dir(process: str, module: str) -> Path | None:
     return None
 
 
-_mod_dir_cache: Path | None = None
-
-
 def _mod_dir() -> Path | None:
-    """The folder the game loaded Toolbox.dll from; looked up again when it disappears."""
-    global _mod_dir_cache
-    if _mod_dir_cache is None or not _mod_dir_cache.is_dir():
-        _mod_dir_cache = _loaded_module_dir(GAME_PROCESS, MOD_MODULE)
-    return _mod_dir_cache
+    """The folder the game loaded Toolbox.dll from, looked up on every call: switching loader
+    (ModEngine 2 to 3) or restarting the game changes it while this server keeps running."""
+    return _loaded_module_dir(GAME_PROCESS, MOD_MODULE)
 
 # Key names the mod understands: the same file the mod is built from (src/input/keys.txt).
 KEYS = {
