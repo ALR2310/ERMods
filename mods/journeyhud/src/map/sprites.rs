@@ -7,6 +7,8 @@
 use std::io;
 use std::path::Path;
 
+use shared::logger;
+
 use super::archive;
 use super::formats::Oodle;
 use super::reader::{Reader, invalid};
@@ -41,10 +43,23 @@ struct Menu {
 }
 
 impl Menu {
+    /// The menu pack the game uses: a loose file (an override of a mod loader) before the archive.
     fn open(game_dir: &Path) -> io::Result<Menu> {
+        Menu::open_with(game_dir, read_menu_file)
+    }
+
+    /// The game's own menu pack, from its archives, whatever a mod has put in its place.
+    fn open_original(game_dir: &Path) -> io::Result<Menu> {
+        Menu::open_with(game_dir, |dir, path| archive::open(dir, path)?.read_all())
+    }
+
+    fn open_with(
+        game_dir: &Path,
+        read: impl Fn(&Path, &str) -> io::Result<Vec<u8>>,
+    ) -> io::Result<Menu> {
         let oodle = Oodle::load(&game_dir.join("oo2core_6_win64.dll"))?;
-        let layouts = oodle.decompress_dcx(&read_menu_file(game_dir, LAYOUTS)?)?;
-        let tpf = oodle.decompress_dcx(&read_menu_file(game_dir, TEXTURES)?)?;
+        let layouts = oodle.decompress_dcx(&read(game_dir, LAYOUTS)?)?;
+        let tpf = oodle.decompress_dcx(&read(game_dir, TEXTURES)?)?;
         Ok(Menu { layouts, tpf, sheets: Vec::new() })
     }
 
@@ -124,6 +139,62 @@ fn read_menu_file(game_dir: &Path, archive_path: &str) -> io::Result<Vec<u8>> {
     }
 }
 
+/// What a pack that redraws the weapon screens puts in place of the affinity icons it blanked (the
+/// same art under other names, in a sheet of its own): the sprite it replaces, and its substitute.
+const SUBSTITUTES: [(&str, SpriteRef); 4] = [
+    ("MENU_FL_40146", SpriteRef { sheet: "SB_Icon_07", name: "MENU_ItemIcon_19004" }),
+    ("MENU_FL_40148", SpriteRef { sheet: "SB_Icon_07", name: "MENU_ItemIcon_19007" }),
+    ("MENU_FL_40150", SpriteRef { sheet: "SB_Icon_07", name: "MENU_ItemIcon_19009" }),
+    ("MENU_FL_40145", SpriteRef { sheet: "SB_Icon_07", name: "MENU_ItemIcon_19008" }),
+];
+
+/// A pack that replaces the menu sheets can leave a sprite empty: such an image is taken from the
+/// substitute the pack has for it, or else read again from the game's own pack.
+fn restore_blank(images: &mut [Image], refs: &[SpriteRef], menu: &mut Menu, game_dir: &Path) {
+    let mut blank: Vec<usize> =
+        images.iter().enumerate().filter(|(_, image)| image.is_blank()).map(|(i, _)| i).collect();
+    blank.retain(|&index| {
+        let substitute = SUBSTITUTES.iter().find(|(name, _)| *name == refs[index].name);
+        let found = substitute
+            .and_then(|(_, sprite)| menu.sprites(&[*sprite]).ok())
+            .and_then(|mut found| found.pop())
+            .filter(|image| !image.is_blank());
+        match found {
+            Some(image) => {
+                logger::log(&format!(
+                    "Sprites: {} is blank in the menu pack, using the pack's substitute",
+                    refs[index].name
+                ));
+                images[index] = image;
+                false
+            }
+            None => true,
+        }
+    });
+    if blank.is_empty() {
+        return;
+    }
+    let Ok(mut original) = Menu::open_original(game_dir) else {
+        logger::warn("Sprites: the game's own menu pack could not be read, blank icons stay");
+        return;
+    };
+    for index in blank {
+        let sprite = refs[index];
+        let found = original
+            .sprites(&[sprite])
+            .ok()
+            .and_then(|mut found| found.pop())
+            .filter(|image| !image.is_blank());
+        if let Some(image) = found {
+            logger::log(&format!(
+                "Sprites: {} is blank in the menu pack, using the game's own",
+                sprite.name
+            ));
+            images[index] = image;
+        }
+    }
+}
+
 /// What [load] read. The parts fail on their own: the minimap draws marks instead of the
 /// game's icons, or leaves the points out.
 pub struct Sprites {
@@ -139,11 +210,11 @@ pub struct Sprites {
 /// seconds and a few hundred MB while it runs, so call it once on a background thread.
 pub fn load(game_dir: &Path, refs: &[SpriteRef]) -> io::Result<Sprites> {
     let mut menu = Menu::open(game_dir)?;
-    Ok(Sprites {
-        icons: menu.sprites(refs),
-        map_icons: menu.map_icons(),
-        status_icons: menu.status_icons(),
-    })
+    let mut icons = menu.sprites(refs);
+    if let Ok(images) = &mut icons {
+        restore_blank(images, refs, &mut menu, game_dir);
+    }
+    Ok(Sprites { icons, map_icons: menu.map_icons(), status_icons: menu.status_icons() })
 }
 
 /// The sprites of `sheet` in the layouts: name (without `.png`) and `[x, y, width, height]`.
@@ -205,6 +276,11 @@ impl Image {
             height: self.height,
             rgba: self.rgba.clone(),
         })
+    }
+
+    /// Whether nothing of the image can be seen.
+    pub fn is_blank(&self) -> bool {
+        self.rgba.as_chunks::<4>().0.iter().all(|px| px[3] < 8)
     }
 
     /// The same image without colour (by luminance), keeping the alpha.
@@ -328,6 +404,14 @@ mod tests {
         assert_eq!(sprite_rect(layouts, "B", "ONE"), Some([10, 20, 30, 40]));
         assert_eq!(sprite_rect(layouts, "B", "TWO"), None);
         assert_eq!(sprite_rect(layouts, "C", "ONE"), None);
+    }
+
+    #[test]
+    fn an_image_is_blank_when_every_pixel_is_clear() {
+        let clear = Image { width: 2, height: 1, rgba: vec![9, 9, 9, 0, 255, 0, 0, 3] };
+        let seen = Image { width: 2, height: 1, rgba: vec![0, 0, 0, 0, 255, 0, 0, 200] };
+        assert!(clear.is_blank());
+        assert!(!seen.is_blank());
     }
 
     #[test]

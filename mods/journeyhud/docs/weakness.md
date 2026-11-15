@@ -68,6 +68,13 @@ enemies (a soldier and a sentinel): every rate and resistance matched.
 - The game builds menu paths from a table of nine layout packs (`00_Solo`, `01_Common`, `02_Title`,
   `03_ChrMake`, `04_NowLoading`, `05_Dummy`, `06_Platform`, `71_MapTile`, `80_Language`; `scripts/ida/menu_layouts.py`).
   Only `01_Common` is read by the mod.
+- A total-conversion pack replaces `01_common.sblytbnd.dcx` and `01_common.tpf.dcx`, and the mod reads those
+  (a loose file before the archive). In the pack tried (Convergence) the four affinity rectangles are still in the
+  layout but the sprites are fully transparent, since its weapon screens do not use them; the chevron and the buildup
+  icons are intact. That pack draws its own affinity icons: 24 sprites of 74x74, `MENU_ItemIcon_19000` to `19023`, in a
+  sheet it adds (`SB_Icon_07`); by their art 19004 is magic, 19007 fire, 19008 holy and 19009 lightning. A sprite that
+  comes out blank is therefore replaced by its substitute when the pack has one (`sprites::SUBSTITUTES`), or else read
+  again from the game's own archive (`sprites::restore_blank`, which logs which of the two it used).
 - Other chevrons and arrows of the sheets (`MENU_Arrow`, `MENU_Change`, `MENU_SortArrow`) are gold, beige or
   framed, and do not tint well; the game has no green or red arrow sprite.
 

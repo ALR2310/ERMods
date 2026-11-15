@@ -167,10 +167,15 @@ pub fn run() {
             if npc != last {
                 last = npc;
                 match &read {
-                    Some(t) => logger::log(&format!(
-                        "Target: npc {} hp {}/{} poise {:?}",
-                        t.npc_param_id, t.hp, t.max_hp, t.poise
-                    )),
+                    Some(t) => {
+                        logger::log(&format!(
+                            "Target: npc {} hp {}/{} poise {:?}",
+                            t.npc_param_id, t.hp, t.max_hp, t.poise
+                        ));
+                        if let Some(weakness) = &t.weakness {
+                            logger::log(&format!("Weakness: {weakness:?}"));
+                        }
+                    }
                     None => logger::log("Target: none"),
                 }
             }
