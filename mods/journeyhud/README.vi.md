@@ -17,8 +17,8 @@
 ## Giới thiệu
 
 JourneyHUD vẽ một HUD gọn ở góc trên bên phải: một minimap tròn trên chính bản đồ thế giới của game, và
-bên dưới là máu, posture, tích tụ trạng thái và hiệu ứng đang chạy của kẻ địch bạn đang khoá. Mod cũng hiện
-thời gian còn lại dưới các icon trạng thái của bạn. Chạy được ở chế độ offline và Seamless Co-op, cần game
+bên dưới là máu, posture, tích tụ trạng thái và hiệu ứng đang chạy của kẻ địch bạn đang khoá, kèm điểm yếu
+của nó. Mod cũng hiện thời gian còn lại dưới các icon trạng thái của bạn. Chạy được ở chế độ offline và Seamless Co-op, cần game
 chạy DX12.
 
 ## Cài đặt
@@ -45,6 +45,7 @@ Mod khác hook cùng swap chain DX12 có thể xung đột với overlay: nếu 
 - [docs/map.md](docs/map.md): bản đồ thế giới, grace, địa điểm, beacon và DLC.
 - [docs/buildup.md](docs/buildup.md): các thanh tích tụ trạng thái.
 - [docs/effects.md](docs/effects.md): hiệu ứng đang chạy, hàng icon trạng thái và thanh tích tụ của người chơi.
+- [docs/weakness.md](docs/weakness.md): loại sát thương và trạng thái mà kẻ địch yếu.
 - [docs/layout_drag.md](docs/layout_drag.md): kéo thả minimap và thanh mục tiêu.
 - [docs/hdr.md](docs/hdr.md): overlay trên màn hình HDR.
 - [docs/player_marker.md](docs/player_marker.md): kim người chơi thay thế (Blue Markers).

@@ -14,6 +14,7 @@ use fromsoftware_shared::FromStatic;
 
 use shared::logger;
 
+use crate::weakness::{self, Weakness};
 use crate::{radar, settings};
 
 // The layout the fields are read at, checked against eldenring.exe 2.6.2.0 to
@@ -93,6 +94,8 @@ pub struct Target {
     pub buildup: Vec<Buildup>,
     /// The effects it has that show an icon, in the order the game keeps them.
     pub effects: Vec<Effect>,
+    /// What it is weak to; `None` when both weakness rows are off or its param row is unreadable.
+    pub weakness: Option<Weakness>,
 }
 
 /// A boss that has a health bar of the game: `slot` is its place among those bars (0 is the
@@ -107,6 +110,8 @@ pub struct Boss {
     pub poise: Option<(f32, f32)>,
     /// The effects it has that show an icon, as for the target.
     pub effects: Vec<Effect>,
+    /// What it is weak to, as for the target.
+    pub weakness: Option<Weakness>,
 }
 
 /// The bosses with a health bar, kept like [OWN].
@@ -288,6 +293,7 @@ fn read_bosses() -> Vec<Boss> {
                 } else {
                     Vec::new()
                 },
+                weakness: weakness::read(chr.npc_param_id),
             })
         })
         .collect()
@@ -327,6 +333,7 @@ fn read() -> Option<Target> {
             .then_some((armor.sa_durability.max(0.0), armor.sa_durability_max)),
         buildup: if settings::buildup() { read_buildup(chr) } else { Vec::new() },
         effects: shown_effects(read_effects(chr), MAX_EFFECTS),
+        weakness: weakness::read(chr.npc_param_id),
     })
 }
 

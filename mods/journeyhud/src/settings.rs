@@ -46,6 +46,8 @@ static RUNE_COUNTER_SCALE: AtomicU32 = AtomicU32::new(0x3F33_3333);
 static RUNE_OFFSET_X: AtomicI32 = AtomicI32::new(48);
 static RUNE_OFFSET_Y: AtomicI32 = AtomicI32::new(20);
 static EFFECTS_TARGET: AtomicBool = AtomicBool::new(true);
+static WEAK_DAMAGE: AtomicBool = AtomicBool::new(true);
+static WEAK_EFFECTS: AtomicBool = AtomicBool::new(true);
 static EFFECTS_PLAYER: AtomicBool = AtomicBool::new(true);
 static PLAYER_BUILDUP: AtomicBool = AtomicBool::new(true);
 static TIMER_STYLE: AtomicU8 = AtomicU8::new(TimerStyle::All as u8);
@@ -114,6 +116,8 @@ pub fn load(config: &Config) {
     set_rune_offset_x(f64::from(rune.offset_x));
     set_rune_offset_y(f64::from(rune.offset_y));
     set_effects_target(target.effects as u8);
+    set_weak_damage(target.weak_damage as u8);
+    set_weak_effects(target.weak_effects as u8);
     set_effects_player(config.player.effect_timer as u8);
     TIMER_STYLE
         .store(TimerStyle::parse(&config.player.effect_timer_style) as u8, Ordering::Relaxed);
@@ -164,6 +168,14 @@ pub fn enabled() -> bool {
 /// Whether the effects of the target (poison, rot, frost, sleep... with the time left) are shown.
 pub fn effects_target() -> bool {
     EFFECTS_TARGET.load(Ordering::Relaxed)
+}
+
+pub fn weak_damage() -> bool {
+    WEAK_DAMAGE.load(Ordering::Relaxed)
+}
+
+pub fn weak_effects() -> bool {
+    WEAK_EFFECTS.load(Ordering::Relaxed)
 }
 
 /// Whether the effects of the player are shown.
@@ -461,6 +473,14 @@ pub fn set_effects_target(value: u8) {
     EFFECTS_TARGET.store(value != 0, Ordering::Relaxed);
 }
 
+pub fn set_weak_damage(value: u8) {
+    WEAK_DAMAGE.store(value != 0, Ordering::Relaxed);
+}
+
+pub fn set_weak_effects(value: u8) {
+    WEAK_EFFECTS.store(value != 0, Ordering::Relaxed);
+}
+
 pub fn set_effects_player(value: u8) {
     EFFECTS_PLAYER.store(value != 0, Ordering::Relaxed);
 }
@@ -498,6 +518,7 @@ pub fn set_rune_counter(value: u8) {
 }
 
 pub fn set_boss_bar(value: u8) {
+    crate::boss_list::warn_if_stale(value != 0);
     BOSS_BAR.store(value != 0, Ordering::Relaxed);
 }
 

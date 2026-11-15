@@ -53,6 +53,16 @@ static EFFECTS_TARGET: Setting = Setting {
     format: menu::format_bool,
     apply: Some(settings::set_effects_target),
 };
+static WEAK_DAMAGE: Setting = Setting {
+    key: "Target.WeakDamage",
+    format: menu::format_bool,
+    apply: Some(settings::set_weak_damage),
+};
+static WEAK_EFFECTS: Setting = Setting {
+    key: "Target.WeakEffects",
+    format: menu::format_bool,
+    apply: Some(settings::set_weak_effects),
+};
 static EFFECTS_PLAYER: Setting = Setting {
     key: "Player.EffectTimer",
     format: menu::format_bool,
@@ -224,6 +234,12 @@ fn build(b: &mut MenuBuilder) -> Result<(), String> {
     })?;
     b.toggle(target, &t("effects.label"), &t("effects.help"), &EFFECTS_TARGET, || {
         config::get().target.effects as u8
+    })?;
+    b.toggle(target, &t("weak_damage.label"), &t("weak_damage.help"), &WEAK_DAMAGE, || {
+        config::get().target.weak_damage as u8
+    })?;
+    b.toggle(target, &t("weak_effects.label"), &t("weak_effects.help"), &WEAK_EFFECTS, || {
+        config::get().target.weak_effects as u8
     })?;
     b.toggle(
         target,
@@ -429,6 +445,8 @@ mod tests {
             &ENEMY_HP_BAR,
             &RUNE_COUNTER,
             &EFFECTS_TARGET,
+            &WEAK_DAMAGE,
+            &WEAK_EFFECTS,
             &EFFECTS_PLAYER,
             &TIMER_STYLE,
             &MINIMAP,

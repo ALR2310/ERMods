@@ -2,7 +2,9 @@
 
 ## [Unreleased]
 
+- Added icons for the damage types and statuses an enemy is weak to.
 - Added an option to choose how effect timers show when effects share an icon.
+- Fixed the target size setting resizing what hangs from a boss's health bar.
 
 ## [1.5.2] - 2026-11-15
 

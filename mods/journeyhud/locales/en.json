@@ -22,6 +22,14 @@
     "label": "Target effects",
     "help": "Show the effects on the target (poison, rot, frost, sleep...) with the time left."
   },
+  "weak_damage": {
+    "label": "Weak to damage",
+    "help": "Show which of magic, fire, lightning and holy the target is weak to (green arrows) or resists (red arrows)."
+  },
+  "weak_effects": {
+    "label": "Weak to effects",
+    "help": "Show the statuses that build up fastest on the target; the ones it is immune to are faded."
+  },
   "effects_player": {
     "label": "Your effects",
     "help": "Show the time left of your own effects under the game's status icons."

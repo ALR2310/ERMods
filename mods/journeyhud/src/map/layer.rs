@@ -48,6 +48,21 @@ pub enum Icon {
     Frostbite,
     Sleep,
     Madness,
+    /// The weapon affinity icons of the game's weapon screens, for the damage types of a weakness.
+    DamageMagic,
+    DamageFire,
+    DamageLightning,
+    DamageHoly,
+    /// A white chevron pointing left, tinted and turned for the arrows of a damage icon.
+    Arrow,
+    /// The buildup icons without colour, for the statuses an enemy is immune to.
+    PoisonGray,
+    ScarletRotGray,
+    BleedGray,
+    DeathBlightGray,
+    FrostbiteGray,
+    SleepGray,
+    MadnessGray,
 }
 
 impl Icon {
@@ -65,14 +80,32 @@ impl Icon {
         .get(kind)
         .copied()
     }
+
+    /// The gray icon of buildup `kind`.
+    pub fn immune(kind: usize) -> Option<Icon> {
+        [
+            Icon::PoisonGray,
+            Icon::ScarletRotGray,
+            Icon::BleedGray,
+            Icon::DeathBlightGray,
+            Icon::FrostbiteGray,
+            Icon::SleepGray,
+            Icon::MadnessGray,
+        ]
+        .get(kind)
+        .copied()
+    }
 }
 
-const ICON_COUNT: usize = 15;
+/// The icons read from the game's sprites, and with the gray copies of the buildup ones all of them.
+const SPRITE_COUNT: usize = 20;
+const STATUS_COUNT: usize = 7;
+const ICON_COUNT: usize = SPRITE_COUNT + STATUS_COUNT;
 /// The icons from this one on (the buildup ones) are trimmed to their art.
 const BUILDUP_ICONS_FROM: usize = Icon::Poison as usize;
 
 /// Where each icon is in the game's menu sprite sheets, in the order of [Icon].
-const ICON_SPRITES: [SpriteRef; ICON_COUNT] = [
+const ICON_SPRITES: [SpriteRef; SPRITE_COUNT] = [
     SpriteRef { sheet: "SB_MapCursor_02", name: "MENU_MAP_01_Bonfire" },
     SpriteRef { sheet: "SB_MapCursor", name: "MENU_MAP_Player_01" },
     SpriteRef { sheet: "SB_MapCursor", name: "MENU_MAP_Coop_01" },
@@ -88,6 +121,11 @@ const ICON_SPRITES: [SpriteRef; ICON_COUNT] = [
     SpriteRef { sheet: "SB_Condition", name: "MENU_RE_Cold" },
     SpriteRef { sheet: "SB_Condition", name: "MENU_RE_Sleep" },
     SpriteRef { sheet: "SB_Condition", name: "MENU_RE_Mad" },
+    SpriteRef { sheet: "SB_MainMenu_02", name: "MENU_FL_40146" },
+    SpriteRef { sheet: "SB_MainMenu_02", name: "MENU_FL_40148" },
+    SpriteRef { sheet: "SB_MainMenu_02", name: "MENU_FL_40150" },
+    SpriteRef { sheet: "SB_MainMenu_02", name: "MENU_FL_40145" },
+    SpriteRef { sheet: "SB_MainMenu_02", name: "MENU_FL_Arrow" },
 ];
 
 /// An uploaded icon and its size in pixels.
@@ -259,18 +297,27 @@ impl MapLayer {
         }
     }
 
-    /// Uploads the icons (all of them or none).
+    /// Uploads the icons (all of them or none), and the gray copies of the buildup ones.
     fn upload_icons(&mut self, ctx: &mut dyn RenderContext, images: &[Image]) {
+        let statuses = BUILDUP_ICONS_FROM..BUILDUP_ICONS_FROM + STATUS_COUNT;
+        let gray = images
+            .get(statuses)
+            .unwrap_or_default()
+            .iter()
+            .map(|image| image.trimmed(24).grayscale());
         let uploaded: Vec<IconTexture> = images
             .iter()
             .enumerate()
-            .filter_map(|(index, image)| {
+            .map(|(index, image)| {
                 // The buildup icons are sized for their art, without the margin of the sprite.
-                let image = if index >= BUILDUP_ICONS_FROM {
+                if index >= BUILDUP_ICONS_FROM {
                     image.trimmed(24)
                 } else {
                     Image { width: image.width, height: image.height, rgba: image.rgba.clone() }
-                };
+                }
+            })
+            .chain(gray)
+            .filter_map(|image| {
                 let texture = ctx.load_texture(&image.rgba, image.width, image.height).ok()?;
                 Some(IconTexture { texture, size: [image.width as f32, image.height as f32] })
             })

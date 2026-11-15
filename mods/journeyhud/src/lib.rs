@@ -15,6 +15,7 @@ mod target;
 mod text;
 mod textures;
 mod ui;
+mod weakness;
 
 use shared::{dll_dir, logger};
 

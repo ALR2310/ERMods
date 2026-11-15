@@ -17,8 +17,9 @@
 ## About
 
 JourneyHUD draws a compact HUD at the top right: a round minimap on the game's own world map, and under it
-the health, posture, status buildup and active effects of the enemy you are locked on to. It also shows the
-time left under your own status icons. It works offline and with Seamless Co-op, and needs the DX12 renderer.
+the health, posture, status buildup and active effects of the enemy you are locked on to, with what it is weak
+to. It also shows the time left under your own status icons. It works offline and with Seamless Co-op,
+and needs the DX12 renderer.
 
 ## Installation
 
@@ -44,6 +45,7 @@ raise `LoadDelay` in `JourneyHUD.toml`.
 - [docs/map.md](docs/map.md): the world map, graces, points, beacons and the DLC.
 - [docs/buildup.md](docs/buildup.md): the status buildup bars.
 - [docs/effects.md](docs/effects.md): active effects, the state icon row and the player buildup gauge.
+- [docs/weakness.md](docs/weakness.md): the damage types and statuses an enemy is weak to.
 - [docs/layout_drag.md](docs/layout_drag.md): dragging the minimap and the target bar.
 - [docs/hdr.md](docs/hdr.md): the overlay on an HDR display.
 - [docs/player_marker.md](docs/player_marker.md): a replaced player arrow (Blue Markers).

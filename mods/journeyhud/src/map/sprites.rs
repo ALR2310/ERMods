@@ -207,6 +207,17 @@ impl Image {
         })
     }
 
+    /// The same image without colour (by luminance), keeping the alpha.
+    pub fn grayscale(&self) -> Image {
+        let mut rgba = self.rgba.clone();
+        for px in rgba.as_chunks_mut::<4>().0 {
+            let luma =
+                (u32::from(px[0]) * 299 + u32::from(px[1]) * 587 + u32::from(px[2]) * 114) / 1000;
+            px[..3].fill(luma as u8);
+        }
+        Image { width: self.width, height: self.height, rgba }
+    }
+
     /// This image reduced by a whole factor (box filter, alpha-weighted) until neither side is
     /// longer than `max_side`; the same image if it already fits.
     pub fn shrunk(&self, max_side: u32) -> Image {
@@ -317,6 +328,17 @@ mod tests {
         assert_eq!(sprite_rect(layouts, "B", "ONE"), Some([10, 20, 30, 40]));
         assert_eq!(sprite_rect(layouts, "B", "TWO"), None);
         assert_eq!(sprite_rect(layouts, "C", "ONE"), None);
+    }
+
+    #[test]
+    fn a_gray_image_keeps_its_alpha_and_loses_its_colour() {
+        let image = Image { width: 2, height: 1, rgba: vec![255, 0, 0, 200, 10, 200, 90, 0] };
+        let gray = image.grayscale();
+        for px in gray.rgba.as_chunks::<4>().0 {
+            assert!(px[0] == px[1] && px[1] == px[2]);
+        }
+        assert_eq!([gray.rgba[3], gray.rgba[7]], [200, 0]);
+        assert!(gray.rgba[0] > 0 && gray.rgba[0] < 255);
     }
 
     #[test]

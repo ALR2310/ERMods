@@ -22,6 +22,14 @@
     "label": "Hiệu ứng mục tiêu",
     "help": "Hiện các hiệu ứng trên mục tiêu (độc, thối đỏ, đóng băng, ngủ...) cùng thời gian còn lại."
   },
+  "weak_damage": {
+    "label": "Yếu sát thương",
+    "help": "Hiện loại nào trong phép, lửa, sét, thánh mà mục tiêu yếu (mũi tên xanh) hoặc kháng (mũi tên đỏ)."
+  },
+  "weak_effects": {
+    "label": "Yếu hiệu ứng",
+    "help": "Hiện các hiệu ứng tích tụ nhanh nhất trên mục tiêu; hiệu ứng miễn nhiễm được làm mờ."
+  },
   "effects_player": {
     "label": "Hiệu ứng của bạn",
     "help": "Hiện thời gian còn lại của các hiệu ứng của bạn dưới hàng icon trạng thái của game."

@@ -3,7 +3,7 @@
 //! `BossList/Item_0_0` to `Item_2_0` of the HUD movie, 55 px apart: the movie is edited as the game
 //! opens it (`hud_movie`).
 
-use std::sync::atomic::{AtomicU32, Ordering};
+use std::sync::atomic::{AtomicU8, AtomicU32, Ordering};
 
 use shared::gfx;
 use shared::logger;
@@ -21,6 +21,22 @@ const TWIPS_PER_PX: f32 = 20.0;
 /// What [edit] changed, as `f32` bits: the added gap and the drop, in pixels (0 when it did not run).
 static EXTRA: AtomicU32 = AtomicU32::new(0);
 static DROP: AtomicU32 = AtomicU32::new(0);
+/// What `Target.BossBar` was when the movie was edited.
+static EDITED_WITH: AtomicU8 = AtomicU8::new(NOT_EDITED);
+const NOT_EDITED: u8 = 0;
+const EDITED_OFF: u8 = 1;
+const EDITED_ON: u8 = 2;
+
+/// Warns when `Target.BossBar` is changed after the movie was edited: the bars only move, or move
+/// back, the next time the game starts.
+pub fn warn_if_stale(boss_bar: bool) {
+    let edited_with = EDITED_WITH.load(Ordering::Relaxed);
+    if edited_with != NOT_EDITED && (edited_with == EDITED_ON) != boss_bar {
+        logger::warn(
+            "Target.BossBar changed after the game started: the boss bars move only at the next start",
+        );
+    }
+}
 
 /// Pixels the game's boss bars are further apart than they were.
 pub fn extra_px() -> f32 {
@@ -35,6 +51,7 @@ pub fn drop_px() -> f32 {
 pub fn edit(movie: &[u8]) -> Option<Vec<u8>> {
     let extra = if settings::boss_bar() { EXTRA_PX } else { 0.0 };
     let drop = if settings::boss_bar() { DROP_PX } else { 0.0 };
+    EDITED_WITH.store(if settings::boss_bar() { EDITED_ON } else { EDITED_OFF }, Ordering::Relaxed);
     let twips = |px: f32| (px * TWIPS_PER_PX) as i32;
     let shifts = [
         ("Item_0_0", 0, twips(drop)),

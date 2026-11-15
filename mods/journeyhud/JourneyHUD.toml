@@ -28,6 +28,8 @@ Width = 250             # Bar length in pixels (100 - 1600).
 Scale = 1.0             # Panel size multiplier (0.5 - 3.0).
 Buildup = true          # Status buildup bars (poison, rot, bleed...).
 Effects = true          # The enemy's effects with the time left, as icons under its bars.
+WeakDamage = true       # Damage types the enemy is weak (green) or resistant (red) to.
+WeakEffects = true      # Statuses that build up fastest on the enemy; immune ones are gray.
 Numbers = true          # Show health, posture and buildup numbers.
 BossBar = true          # Move the boss health bars down, with posture and effects under them (restart needed).
 

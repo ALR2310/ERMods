@@ -80,6 +80,8 @@ pub struct Target {
     pub numbers: bool,
     pub buildup: bool,
     pub effects: bool,
+    pub weak_damage: bool,
+    pub weak_effects: bool,
     pub boss_bar: bool,
     pub offset_x: i32,
     pub offset_y: i32,

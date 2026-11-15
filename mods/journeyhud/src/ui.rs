@@ -11,15 +11,18 @@ use hudhook::{BeforeWndProc, ImguiRenderLoop, MessageFilter, RenderContext};
 
 use shared::{input, logger, overlay};
 
+use std::borrow::Cow;
+
 use crate::config;
 use crate::drag::Drag;
-use crate::map::layer::{Icon, MapLayer};
+use crate::map::layer::{Icon, IconTexture, MapLayer};
 use crate::radar::ui::{self as radar_ui, Placement, Radar};
 use crate::radar::{self, Snapshot as RadarSnapshot};
 use crate::settings;
 use crate::target::{self, Boss, Buildup, Effect, Target};
 use crate::text;
 use crate::textures::{self, Textures};
+use crate::weakness::{Damage, Weakness};
 
 /// The game draws its HUD in a 16:9 area fitted into the window (black bars on
 /// the other axis), authored for 1080p. Everything here is laid out in that
@@ -40,7 +43,8 @@ const BAR_NUMBER: f32 = 10.0;
 /// The buildup bars under the tan line: a row each, with the icon, the bar and the gap to the
 /// bars above (and the posture numbers, which need a row of their own when shown).
 const BUILDUP_ROW: f32 = 25.0;
-const BUILDUP_ICON: f32 = 24.0;
+/// The icon of a buildup bar is as big as an icon of the weakness rows.
+const BUILDUP_ICON: f32 = EFFECT_ICON * TARGET_EFFECTS_SCALE * WEAKNESS_ICON;
 const BUILDUP_ICON_GAP: f32 = 0.0;
 const BUILDUP_BAR: f32 = 12.0;
 const BUILDUP_GAP: f32 = 4.0;
@@ -61,6 +65,18 @@ const PLAYER_EFFECTS_PER_ROW: usize = 6;
 /// Font size of the times under the game's own icons, at 1080p.
 const GAME_ICON_TIME: f32 = 12.0;
 const EFFECTS_GAP: f32 = 4.0;
+/// The weakness icons and the room each takes, as fractions of an effect's: they sit in a row of
+/// their own and should not look bigger than the effects.
+const WEAKNESS_ICON: f32 = 0.8;
+const WEAKNESS_CELL: f32 = 0.9;
+/// How faded the gray icon of a status the target is immune to is.
+const IMMUNE_ALPHA: f32 = 0.65;
+/// The arrows of a damage icon: a weakness and a resistance, and how many levels are drawn at most.
+const WEAK_ARROW: [f32; 4] = [0.3, 0.85, 0.3, 1.0];
+const RESIST_ARROW: [f32; 4] = [0.9, 0.25, 0.2, 1.0];
+const MAX_ARROWS: usize = 3;
+/// An arrow's width as a fraction of the damage icon's side.
+const ARROW_WIDTH: f32 = 0.5;
 /// The game's row of status icons, in 1080p pixels of its picture (measured on screenshots, the
 /// slots from `state_icons`): the first icon is centered at x 155.5 and the slots are 42 apart,
 /// the diamonds end at y 141, the times start a little lower.
@@ -438,6 +454,7 @@ fn game_area(w: f32, h: f32) -> [f32; 4] {
     }
 }
 
+#[derive(Clone, Copy)]
 struct Layout<'a> {
     area: [f32; 4],
     /// See `HudRenderLoop::edge`.
@@ -484,27 +501,221 @@ fn draw_target(ui: &Ui, target: &Target, [trail, poise_trail]: [&Trail; 2], layo
         let bottom = draw_bars(ui, &draw, target, [trail, poise_trail], [left, y, width], layout);
         // Under the tan line.
         row_top = bottom + (LINE + BUILDUP_GAP) * s;
-        if settings::effects_target() && !target.effects.is_empty() {
-            let size = s * TARGET_EFFECTS_SCALE;
-            let per_row = (((right - left) / (EFFECT_CELL * size)).floor() as usize)
-                .clamp(1, PLAYER_EFFECTS_PER_ROW);
-            let cells = Cells {
-                origin: [right, row_top],
-                right_aligned: true,
-                s: size,
-                text: EFFECT_TIME_TARGET * s,
-                per_row,
-            };
-            draw_effects(ui, &draw, &target.effects, cells, layout);
-            let rows = target.effects.len().div_ceil(per_row).min(EFFECT_ROWS);
-            row_top += rows as f32 * EFFECT_ROW * size + EFFECTS_GAP * s;
-        }
+    }
+    // A boss's weakness hangs from its own bar (`draw_boss`). In the panel the statuses it can suffer
+    // carry the time of the ones that have popped, so those effects get no cells of their own.
+    let weakness = target.weakness.as_ref().filter(|_| boss.is_none());
+    let merged = weakness.filter(|_| settings::weak_effects());
+    let effects = match merged {
+        Some(weakness) => Cow::Owned(without_weak_statuses(&target.effects, weakness)),
+        None => Cow::Borrowed(target.effects.as_slice()),
+    };
+    if let Some(weakness) = weakness {
+        let timed: &[Effect] = if merged.is_some() { &target.effects } else { &[] };
+        row_top += draw_weakness(ui, &draw, weakness, timed, [left, row_top, right], layout);
+    }
+    if boss.is_none() && settings::effects_target() && !effects.is_empty() {
+        let size = s * TARGET_EFFECTS_SCALE;
+        let per_row = (((right - left) / (EFFECT_CELL * size)).floor() as usize)
+            .clamp(1, PLAYER_EFFECTS_PER_ROW);
+        let cells = Cells {
+            origin: [right, row_top],
+            right_aligned: true,
+            s: size,
+            text: EFFECT_TIME_TARGET * s,
+            per_row,
+        };
+        draw_effects(ui, &draw, &effects, cells, layout);
+        let rows = effects.len().div_ceil(per_row).min(EFFECT_ROWS);
+        row_top += rows as f32 * EFFECT_ROW * size + EFFECTS_GAP * s;
     }
     for buildup in &target.buildup {
         draw_buildup(ui, &draw, buildup, [left, row_top, right], layout);
         row_top += BUILDUP_ROW * s;
     }
     anchor_gauges(layout.edge);
+}
+
+/// Where a row of weakness icons goes: the edge it starts from, its top, which way it grows and
+/// the room and size of one icon.
+struct WeaknessRow {
+    edge: f32,
+    top: f32,
+    from_left: bool,
+    cell: f32,
+    side: f32,
+    per_row: usize,
+}
+
+impl WeaknessRow {
+    fn new(edge: f32, top: f32, from_left: bool, room: f32, s: f32) -> Self {
+        let size = s * TARGET_EFFECTS_SCALE;
+        let cell = EFFECT_CELL * size * WEAKNESS_CELL;
+        let per_row = (room / cell).floor().max(1.0) as usize;
+        let side = EFFECT_ICON * size * WEAKNESS_ICON;
+        WeaknessRow { edge, top, from_left, cell, side, per_row }
+    }
+
+    fn center(&self, i: usize) -> f32 {
+        let step = (i as f32 + 0.5) * self.cell;
+        if self.from_left { self.edge + step } else { self.edge - step }
+    }
+}
+
+/// `effects` without those of a status that a row of weakness icons already carries.
+fn without_weak_statuses(effects: &[Effect], weakness: &Weakness) -> Vec<Effect> {
+    effects
+        .iter()
+        .copied()
+        .filter(|e| !e.kind.is_some_and(|kind| weakness.statuses.iter().any(|&(k, _)| k == kind)))
+        .collect()
+}
+
+/// The rows of what the target is weak to, right-aligned from `right`, with the same cells as the
+/// target's effects; returns the height they take, gap included.
+fn draw_weakness(
+    ui: &Ui,
+    draw: &DrawListMut<'_>,
+    weakness: &Weakness,
+    timed: &[Effect],
+    [left, top, right]: [f32; 3],
+    layout: &Layout,
+) -> f32 {
+    let s = layout.s;
+    let mut row = WeaknessRow::new(right, top, false, right - left, s);
+    if settings::weak_effects() && !weakness.statuses.is_empty() {
+        row.top += draw_status_row(ui, draw, weakness, timed, &row, layout);
+    }
+    if settings::weak_damage() && !weakness.damage.is_empty() {
+        draw_damage_row(draw, weakness, &row, layout);
+        row.top += row.cell;
+    }
+    if row.top > top { row.top - top + EFFECTS_GAP * s } else { 0.0 }
+}
+
+/// `icon` of a row centered on `center`, as tall as the row's icons; returns its width.
+fn draw_row_icon(
+    draw: &DrawListMut<'_>,
+    icon: IconTexture,
+    row: &WeaknessRow,
+    center: f32,
+    alpha: f32,
+) -> f32 {
+    let width = (row.side * icon.size[0] / icon.size[1]).min(row.cell);
+    draw.add_image(
+        icon.texture,
+        [center - width / 2.0, row.top],
+        [center + width / 2.0, row.top + row.side],
+    )
+    .col(fade([1.0, 1.0, 1.0, alpha]))
+    .build();
+    width
+}
+
+/// The statuses of `weakness` with the time of those in `timed` under their icons; returns the
+/// height of the row.
+fn draw_status_row(
+    ui: &Ui,
+    draw: &DrawListMut<'_>,
+    weakness: &Weakness,
+    timed: &[Effect],
+    row: &WeaknessRow,
+    layout: &Layout,
+) -> f32 {
+    let s = layout.s;
+    let mut times = false;
+    for (i, &(kind, immune)) in weakness.statuses.iter().take(row.per_row).enumerate() {
+        let icon = if immune { Icon::immune(kind) } else { Icon::buildup(kind) };
+        let Some(icon) = icon.and_then(|icon| layout.icons?.icon(icon)) else {
+            continue;
+        };
+        let center = row.center(i);
+        draw_row_icon(draw, icon, row, center, if immune { IMMUNE_ALPHA } else { 1.0 });
+        let left_over = timed
+            .iter()
+            .filter(|e| e.kind == Some(kind) && !e.permanent && e.left > 0.0)
+            .map(|e| e.left)
+            .fold(0.0, f32::max);
+        if left_over > 0.0 {
+            times = true;
+            let label = effect_time(left_over);
+            let em = EFFECT_TIME_TARGET * s;
+            let size = text::measure(ui, &label, em);
+            let pos = [(center - size[0] / 2.0).round(), (row.top + row.side + s).round()];
+            text::add_shadowed(&label, pos, em, fade(TEXT), fade(TEXT_SHADOW), s.max(1.0));
+        }
+    }
+    row.cell + if times { EFFECT_TIME_TARGET * s } else { 0.0 }
+}
+
+/// The damage types of `weakness`, each with its arrows.
+fn draw_damage_row(
+    draw: &DrawListMut<'_>,
+    weakness: &Weakness,
+    row: &WeaknessRow,
+    layout: &Layout,
+) {
+    for (i, &(damage, level)) in weakness.damage.iter().take(row.per_row).enumerate() {
+        let Some(icon) = layout.icons.and_then(|map| map.icon(damage_icon(damage))) else {
+            continue;
+        };
+        let center = row.center(i);
+        let width = draw_row_icon(draw, icon, row, center, 1.0);
+        if let Some(arrow) = layout.icons.and_then(|map| map.icon(Icon::Arrow)) {
+            let corner = [center + width / 2.0, row.top + row.side];
+            draw_level_arrows(draw, arrow, level, corner, row.side);
+        }
+    }
+}
+
+/// One chevron of the game per level on the lower right corner of a damage icon, stacked upwards:
+/// green and pointing up for a weakness, red and pointing down for a resistance.
+fn draw_level_arrows(
+    draw: &DrawListMut<'_>,
+    arrow: IconTexture,
+    level: i8,
+    corner: [f32; 2],
+    side: f32,
+) {
+    let up = level > 0;
+    let color = if up { WEAK_ARROW } else { RESIST_ARROW };
+    // The sprite points left; turned a quarter it points up or down, and its height becomes the
+    // arrow's width.
+    let k = ARROW_WIDTH * side / arrow.size[1];
+    let (half_w, half_h) = (arrow.size[0] * k / 2.0, arrow.size[1] * k / 2.0);
+    let corners = if up {
+        [[half_h, -half_w], [half_h, half_w], [-half_h, half_w], [-half_h, -half_w]]
+    } else {
+        [[-half_h, half_w], [-half_h, -half_w], [half_h, -half_w], [half_h, half_w]]
+    };
+    for n in 0..usize::from(level.unsigned_abs()).min(MAX_ARROWS) {
+        let center = [corner[0] - half_h, corner[1] - half_w - n as f32 * half_w * 1.2];
+        let at = |offset: [f32; 2], c: [f32; 2]| {
+            [center[0] + c[0] + offset[0], center[1] + c[1] + offset[1]]
+        };
+        let quad = |offset: [f32; 2], tint: [f32; 4]| {
+            draw.add_image_quad(
+                arrow.texture,
+                at(offset, corners[0]),
+                at(offset, corners[1]),
+                at(offset, corners[2]),
+                at(offset, corners[3]),
+            )
+            .col(fade(tint))
+            .build();
+        };
+        quad([1.0, 1.0], [0.0, 0.0, 0.0, 0.8]);
+        quad([0.0, 0.0], color);
+    }
+}
+
+fn damage_icon(damage: Damage) -> Icon {
+    match damage {
+        Damage::Magic => Icon::DamageMagic,
+        Damage::Fire => Icon::DamageFire,
+        Damage::Lightning => Icon::DamageLightning,
+        Damage::Holy => Icon::DamageHoly,
+    }
 }
 
 /// The health and posture bars of the panel with their frames, from `[left, y, width]`; returns
@@ -550,9 +761,9 @@ fn draw_bars(
         draw_poise_bar(ui, draw, poise, poise_trail, [left, right, poise_from, bottom], layout);
     }
     // A frame for each bar, drawn over both so one bar's does not hide the other's.
-    frame(draw, left, right, y, hp_bottom, s, layout.textures);
+    frame(draw, [left, right, y, hp_bottom], s, layout.textures, true);
     if let Some(poise_from) = poise_top {
-        frame(draw, left, right, poise_from, bottom, s, layout.textures);
+        frame(draw, [left, right, poise_from, bottom], s, layout.textures, true);
     }
     bottom
 }
@@ -593,8 +804,10 @@ fn draw_poise_bar(
 /// same pieces turned upside down hang from the line over the posture bar, making a mirror image.
 fn draw_boss(ui: &Ui, boss: &Boss, trail: &Trail, layout: &Layout) {
     let draw = ui.get_foreground_draw_list();
-    let s = layout.s;
+    // The game's bar does not follow `Target.Scale`, so what hangs from it does not either.
     let res = layout.area[3] / BASE_HEIGHT;
+    let layout = &Layout { s: res, ..*layout };
+    let s = res;
     let [left, top, width] = boss_rect(&layout.area, boss.slot);
     let right = left + width;
     if layout.show_numbers {
@@ -603,19 +816,36 @@ fn draw_boss(ui: &Ui, boss: &Boss, trail: &Trail, layout: &Layout) {
         let bar = [top - (BOSS_BAR_GAP + BOSS_BAR_HEIGHT) * res, top - BOSS_BAR_GAP * res];
         draw_bar_number(ui, &label, [left, right, bar[0], bar[1]], BAR_NUMBER * s, s);
     }
-    // The effects, right to left from the end of the bar, under the posture bar.
-    if !boss.effects.is_empty() {
-        let size = s * TARGET_EFFECTS_SCALE;
-        let poise_height = if boss.poise.is_some() { POISE_HEIGHT * s } else { 0.0 };
+    // Under the posture bar: the damage it is weak to from the left end of the bar, and from the
+    // right end the statuses it is weak to with their time, then its other effects.
+    let size = s * TARGET_EFFECTS_SCALE;
+    let poise_height = if boss.poise.is_some() { POISE_HEIGHT * s } else { 0.0 };
+    let row_top = top + poise_height + EFFECTS_GAP * s;
+    let mut effects = Cow::Borrowed(boss.effects.as_slice());
+    let mut effects_right = right;
+    if let Some(weakness) = &boss.weakness {
+        let room = (right - left) / 2.0;
+        if settings::weak_damage() && !weakness.damage.is_empty() {
+            let row = WeaknessRow::new(left, row_top, true, room, s);
+            draw_damage_row(&draw, weakness, &row, layout);
+        }
+        if settings::weak_effects() && !weakness.statuses.is_empty() {
+            let row = WeaknessRow::new(right, row_top, false, room, s);
+            draw_status_row(ui, &draw, weakness, &boss.effects, &row, layout);
+            effects_right -= weakness.statuses.len().min(row.per_row) as f32 * row.cell;
+            effects = Cow::Owned(without_weak_statuses(&boss.effects, weakness));
+        }
+    }
+    if !effects.is_empty() {
         let cells = Cells {
-            origin: [right, top + poise_height + EFFECTS_GAP * s],
+            origin: [effects_right, row_top],
             right_aligned: true,
             s: size,
             text: EFFECT_TIME_TARGET * s,
-            per_row: (((right - left) / (EFFECT_CELL * size)).floor() as usize)
+            per_row: (((effects_right - left) / (EFFECT_CELL * size)).floor() as usize)
                 .clamp(1, PLAYER_EFFECTS_PER_ROW * EFFECT_ROWS),
         };
-        draw_effects(ui, &draw, &boss.effects, cells, layout);
+        draw_effects(ui, &draw, &effects, cells, layout);
     }
     let Some(poise) = boss.poise else {
         return;
@@ -890,6 +1120,8 @@ fn draw_buildup(
         textures: layout.textures,
     };
     draw_bar(draw, &bar);
+    // Left open at the icon's end: the box runs into the icon's own frame.
+    frame(draw, [left, bar_right, middle - half, middle + half], s, layout.textures, false);
     if layout.show_numbers {
         let label = format!("{} / {}", buildup.built, buildup.max);
         draw_bar_number(
@@ -1012,18 +1244,17 @@ fn flat_bar(draw: &DrawListMut<'_>, bar: &Bar<'_>) {
 
 /// The frame around the bars: the game's box for its buildup gauge (a thin line above and below,
 /// a cap at each end) from its own textures, or drawn shapes (the tan line under the bars and a
-/// small ornament at each end) when they could not be loaded.
+/// small ornament at each end) when they could not be loaded. `close_right` is false for a bar
+/// that ends against something else, which then has no cap at its right end.
 fn frame(
     draw: &DrawListMut<'_>,
-    left: f32,
-    right: f32,
-    top: f32,
-    bottom: f32,
+    [left, right, top, bottom]: [f32; 4],
     s: f32,
     textures: Option<&Textures>,
+    close_right: bool,
 ) {
     if let Some(textures) = textures {
-        textured_frame(draw, [left, right, top, bottom], s, textures);
+        textured_frame(draw, [left, right, top, bottom], s, textures, close_right);
         return;
     }
     let line = LINE * s.max(0.85);
@@ -1038,6 +1269,9 @@ fn frame(
     )
     .filled(true)
     .build();
+    if !close_right {
+        return;
+    }
     draw.add_triangle(
         [right - 2.0 * s, under],
         [right + 3.0 * s, under],
@@ -1056,6 +1290,7 @@ fn textured_frame(
     [left, right, top, bottom]: [f32; 4],
     s: f32,
     textures: &Textures,
+    close_right: bool,
 ) {
     let white = fade([1.0, 1.0, 1.0, 1.0]);
     let [width, height] = textures::WAKU_SIZE;
@@ -1082,6 +1317,9 @@ fn textured_frame(
     let [left_w, _] = textures::WAKU_LEFT_SIZE;
     let x1 = left + 1.0 * s;
     draw.add_image(textures.waku_left, [x1 - left_w * kx, y0], [x1, y1]).col(white).build();
+    if !close_right {
+        return;
+    }
     let from = textures::WAKU_CAP_FROM;
     let x0 = right + 1.0 * s - (textures::WAKU_CAP_ART_END - from) * kx;
     draw.add_image(textures.waku, [x0, y0], [x0 + (width - from) * kx, y1])
