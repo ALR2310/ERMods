@@ -27,6 +27,9 @@ vụ nổ gai. Các đòn đánh liên tiếp có thể cộng dồn vào một 
 thành số riêng khi tách được phần HP mất. Mục `[DamageNumbers]` chỉnh kiểu hiển thị, cỡ chữ và thời gian; số
 mặc định của game trên địch thường bị ẩn, đổi phần này cần khởi động lại.
 
+Log giữ thông tin khởi tạo, cảnh báo và lỗi. `Logging.StateChanges` thêm thay đổi mục tiêu, điểm yếu,
+tích tụ và hiệu ứng; các key `*Probe` thêm chi tiết bản đồ, địch và sát thương.
+
 ## Cài đặt
 
 1. Tải mod từ [trang Nexus](https://www.nexusmods.com/eldenring/mods/11543).

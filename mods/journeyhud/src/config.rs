@@ -217,6 +217,7 @@ pub struct Rendering {
 #[serde(default, deny_unknown_fields, rename_all = "PascalCase")]
 pub struct Logging {
     pub log_file: bool,
+    pub state_changes: bool,
     /// Extra diagnostic lines about the map in the log (see `settings::map_probe`).
     pub map_probe: bool,
     /// How many hostile enemies the minimap sees, in the log (see `settings::enemy_probe`).
@@ -389,7 +390,12 @@ Scale = 1.5
     fn the_log_is_on_and_diagnostics_are_off_by_default() {
         let logging = template().logging;
         assert!(logging.log_file);
-        assert!(!logging.map_probe && !logging.enemy_probe && !logging.damage_probe);
+        assert!(
+            !logging.state_changes
+                && !logging.map_probe
+                && !logging.enemy_probe
+                && !logging.damage_probe
+        );
         // The enemy dots are off until the player turns them on.
         assert!(!template().minimap.layers.enemies);
     }

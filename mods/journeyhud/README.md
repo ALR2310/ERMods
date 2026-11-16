@@ -27,6 +27,9 @@ marked with a splash. Hits in quick succession can grow one number (`Merge`), an
 as numbers of their own when their HP loss can be told apart. `[DamageNumbers]` sets the style, size and
 duration; it hides the game's own numbers over ordinary enemies, which needs a restart to change.
 
+The log keeps startup information, warnings and errors. `Logging.StateChanges` adds target,
+weakness, buildup and effect changes; the `*Probe` switches add map, enemy and damage details.
+
 ## Installation
 
 1. Download the mod from its [Nexus page](https://www.nexusmods.com/eldenring/mods/11543).

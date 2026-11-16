@@ -119,6 +119,7 @@ static MAP_PROBE: AtomicBool = AtomicBool::new(false);
 /// `Logging.EnemyProbe`: how many hostile enemies the minimap sees, in the log.
 static ENEMY_PROBE: AtomicBool = AtomicBool::new(false);
 static DAMAGE_PROBE: AtomicBool = AtomicBool::new(false);
+static STATE_CHANGES: AtomicBool = AtomicBool::new(false);
 static DAMAGE_NUMBERS: AtomicBool = AtomicBool::new(false);
 static DAMAGE_MERGE: AtomicBool = AtomicBool::new(false);
 static DAMAGE_MODE: AtomicU8 = AtomicU8::new(DamageMode::Combined as u8);
@@ -185,6 +186,7 @@ pub fn load(config: &Config) {
     set_minimap_range(f64::from(minimap.range));
     TOGGLE_KEY.store(parse_virtual_key(&config.general.toggle_key, 0), Ordering::Relaxed);
     MAP_PROBE.store(config.logging.map_probe, Ordering::Relaxed);
+    STATE_CHANGES.store(config.logging.state_changes && config.logging.log_file, Ordering::Relaxed);
     ENEMY_PROBE.store(config.logging.enemy_probe, Ordering::Relaxed);
     DAMAGE_PROBE.store(config.logging.damage_probe && config.logging.log_file, Ordering::Relaxed);
     set_minimap_enemies(minimap.layers.enemies as u8);
@@ -449,6 +451,10 @@ pub fn enemy_probe() -> bool {
 
 pub fn damage_probe() -> bool {
     DAMAGE_PROBE.load(Ordering::Relaxed)
+}
+
+pub fn state_changes() -> bool {
+    STATE_CHANGES.load(Ordering::Relaxed)
 }
 
 pub fn damage_numbers() -> bool {

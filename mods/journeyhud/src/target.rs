@@ -165,50 +165,57 @@ pub fn run() {
             damage_probe.tick();
             let read = if settings::enabled() { read() } else { None };
             radar::update(read.as_ref().map(|t| t.offset));
-            let npc = read.as_ref().map(|t| t.npc_param_id);
-            if npc != last {
-                last = npc;
-                match &read {
-                    Some(t) => {
-                        logger::log(&format!(
-                            "Target: npc {} hp {}/{} poise {:?}",
-                            t.npc_param_id, t.hp, t.max_hp, t.poise
-                        ));
-                        if let Some(weakness) = &t.weakness {
-                            logger::log(&format!("Weakness: {weakness:?}"));
-                        }
-                    }
-                    None => logger::log("Target: none"),
-                }
-            }
-            // One line when a status starts or stops building up: how the values behave, in the log.
-            let kinds: Vec<usize> =
-                read.iter().flat_map(|t| t.buildup.iter().map(|b| b.kind)).collect();
-            if kinds != last_kinds {
-                if let Some(target) = &read {
-                    let shown: Vec<String> = target
-                        .buildup
-                        .iter()
-                        .map(|b| format!("{} {}/{}", BUILDUP[b.kind], b.built, b.max))
-                        .collect();
-                    logger::log(&format!("Buildup: {}", shown.join(", ")));
-                }
-                last_kinds = kinds;
-            }
-            // One line when the set of effects changes: which ones show up, for `docs/effects.md`.
-            let effects: Vec<i32> =
-                read.iter().flat_map(|t| t.effects.iter().map(|e| e.param_id)).collect();
-            if effects != last_effects {
-                if let Some(target) = &read {
-                    logger::log(&format!("Effects: enemy {}", describe(&target.effects)));
-                }
-                last_effects = effects;
-            }
             let own = own_effects();
-            let ids: Vec<i32> = own.iter().map(|e| e.param_id).collect();
-            if ids != last_own {
-                logger::log(&format!("Effects: player {}", describe(&own)));
-                last_own = ids;
+            if settings::state_changes() {
+                let npc = read.as_ref().map(|t| t.npc_param_id);
+                if npc != last {
+                    last = npc;
+                    match &read {
+                        Some(t) => {
+                            logger::log(&format!(
+                                "Target: npc {} hp {}/{} poise {:?}",
+                                t.npc_param_id, t.hp, t.max_hp, t.poise
+                            ));
+                            if let Some(weakness) = &t.weakness {
+                                logger::log(&format!("Weakness: {weakness:?}"));
+                            }
+                        }
+                        None => logger::log("Target: none"),
+                    }
+                }
+                // One line when a status starts or stops building up: how the values behave, in the log.
+                let kinds: Vec<usize> =
+                    read.iter().flat_map(|t| t.buildup.iter().map(|b| b.kind)).collect();
+                if kinds != last_kinds {
+                    if let Some(target) = &read {
+                        let shown: Vec<String> = target
+                            .buildup
+                            .iter()
+                            .map(|b| format!("{} {}/{}", BUILDUP[b.kind], b.built, b.max))
+                            .collect();
+                        logger::log(&format!("Buildup: {}", shown.join(", ")));
+                    }
+                    last_kinds = kinds;
+                }
+                // One line when the set of effects changes: which ones show up, for `docs/effects.md`.
+                let effects: Vec<i32> =
+                    read.iter().flat_map(|t| t.effects.iter().map(|e| e.param_id)).collect();
+                if effects != last_effects {
+                    if let Some(target) = &read {
+                        logger::log(&format!("Effects: enemy {}", describe(&target.effects)));
+                    }
+                    last_effects = effects;
+                }
+                let ids: Vec<i32> = own.iter().map(|e| e.param_id).collect();
+                if ids != last_own {
+                    logger::log(&format!("Effects: player {}", describe(&own)));
+                    last_own = ids;
+                }
+            } else {
+                last = None;
+                last_kinds.clear();
+                last_effects.clear();
+                last_own.clear();
             }
             if let Ok(mut guard) = BOSSES.lock() {
                 *guard = Some((read_bosses(), Instant::now()));
