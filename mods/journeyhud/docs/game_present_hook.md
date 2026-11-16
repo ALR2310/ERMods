@@ -31,6 +31,22 @@ original it renders on `*a1` with the queue from the state getter (the getter's 
 `dxgi.dll`, no vtable and no swap chain wrapper is touched; mods that wrap or patch DXGI are not in the path.
 When the pattern is not found the old DXGI hooks are used and the log says so.
 
+## Coexistence with Toolbox
+
+**Confirmed on 2.7.2.0.** When Toolbox installs its overlay first, it patches the first five bytes of the game's
+Present with a jump to a relay inside `Toolbox.dll`, so the full `GAME_PRESENT_PATTERN` no longer matches for
+JourneyHUD, which then falls back to the DXGI hooks (the log says so). Both overlays still draw. This is a start-up
+ordering effect, not a rendering cost; no comparison without Toolbox was made.
+
+The game-Present route stays the preferred one: it avoids the dummy swap chain and wrapper interactions behind the
+ERSS 5.1.0 crash above, and was tested with ERSS 4, 5 and 6 and other overlay mods. The DXGI fallback can bring that
+path back, and a different load order only changes which DLL falls back.
+
+**Hypotheses, not implemented:** resolve Present from an unmodified part of its body (unique on every supported
+build); chain the detours explicitly instead of overwriting another mod's patch. `shared` is linked separately into
+each DLL, so its statics cannot arbitrate between mods. Check both load orders and several `LoadDelay` values, with
+ERSS 4/5/6, QuestPath and the Steam overlay, resizing, window modes and HDR.
+
 ## Open
 
 - The game's resize path was not found (the swap chain may be recreated); the overlay resets its pipeline when the

@@ -38,6 +38,7 @@ add redundant checks.
 
 ## Before finishing a task
 
+- For every review and before committing, read and follow [docs/review-prompt.md](docs/review-prompt.md).
 - Review every changed file as a reviewer would.
 - Remove unused code, imports and leftover debugging output.
 - Check for duplicated logic and inconsistent naming.

@@ -35,8 +35,8 @@ BossBar = true          # Move the boss health bars down, with posture and effec
 
 
 [Player]
-# Your own status icons at the top-left.
-EffectTimer = true      # Time left under each of the game's status icons.
+# Time left under each of your status icons at the top-left.
+EffectTimer = true
 # Effects sharing one icon: "All" = a time for each (up to 3), "Shortest" or "Longest" = one.
 EffectTimerStyle = "All"
 
