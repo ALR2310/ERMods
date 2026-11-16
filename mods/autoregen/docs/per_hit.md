@@ -93,5 +93,12 @@ weapons above still depend on the latch alone.
 
 ## Open risks
 
-The pattern is verified on one game build. When it is not found the install is retried every ten seconds
+Static follow-up: the complete source pattern matches exactly once on each reference
+executable (2.6.2.0, 2.7.0.0, 2.7.1.0 and 2.7.2.0). On 2.7.2.0, decompilation confirms
+the integer at `hit_info + 0x228` is passed negated to HP-delta handling, behind state
+and flag checks. The entry observer does not by itself prove actual HP lost. See
+[JourneyHUD floating damage numbers](../../journeyhud/docs/damage_numbers.md)
+for the hit record fields it reads from the same call. In-game verification remains 2.7.1.0 as above.
+
+When the pattern is not found the install is retried every ten seconds
 and the mod logs one error after 15 seconds; the per-tick part keeps working.

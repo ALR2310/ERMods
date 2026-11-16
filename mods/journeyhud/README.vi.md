@@ -21,6 +21,12 @@ bên dưới là máu, posture, tích tụ trạng thái và hiệu ứng đang 
 của nó. Mod cũng hiện thời gian còn lại dưới các icon trạng thái của bạn. Chạy được ở chế độ offline và Seamless Co-op, cần game
 chạy DX12.
 
+Đòn đánh của bạn cũng nổi trên đầu địch dưới dạng số sát thương, tô màu theo loại: một số gộp (`Combined`)
+hoặc mỗi loại một số (`Split`). Đòn chí mạng (đâm sau lưng, riposte) màu cam, to hơn, hiện lâu hơn và có hình
+vụ nổ gai. Các đòn đánh liên tiếp có thể cộng dồn vào một số (`Merge`), còn sát thương nổ Bleed/Frostbite hiện
+thành số riêng khi tách được phần HP mất. Mục `[DamageNumbers]` chỉnh kiểu hiển thị, cỡ chữ và thời gian; số
+mặc định của game trên địch thường bị ẩn, đổi phần này cần khởi động lại.
+
 ## Cài đặt
 
 1. Tải mod từ [trang Nexus](https://www.nexusmods.com/eldenring/mods/11543).
@@ -46,6 +52,7 @@ Mod khác hook cùng swap chain DX12 có thể xung đột với overlay: nếu 
 - [docs/buildup.md](docs/buildup.md): các thanh tích tụ trạng thái.
 - [docs/effects.md](docs/effects.md): hiệu ứng đang chạy, hàng icon trạng thái và thanh tích tụ của người chơi.
 - [docs/weakness.md](docs/weakness.md): loại sát thương và trạng thái mà kẻ địch yếu.
+- [docs/damage_numbers.md](docs/damage_numbers.md): số damage nổi, hook đòn đánh và giới hạn kiểm thử.
 - [docs/layout_drag.md](docs/layout_drag.md): kéo thả minimap và thanh mục tiêu.
 - [docs/hdr.md](docs/hdr.md): overlay trên màn hình HDR.
 - [docs/player_marker.md](docs/player_marker.md): kim người chơi thay thế (Blue Markers).

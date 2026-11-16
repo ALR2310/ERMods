@@ -33,6 +33,23 @@ impl TimerStyle {
     }
 }
 
+#[derive(Clone, Copy, PartialEq, Debug)]
+pub enum DamageMode {
+    Combined,
+    Split,
+}
+
+impl DamageMode {
+    pub const NAMES: [&'static str; 2] = ["Combined", "Split"];
+
+    pub fn parse(name: &str) -> Self {
+        match name.trim().to_ascii_lowercase().as_str() {
+            "split" => Self::Split,
+            _ => Self::Combined,
+        }
+    }
+}
+
 /// The minimap ranges (meters from the center to the rim) the zoom keys step through.
 const ZOOM_LEVELS: [i32; 3] = [50, 100, 200];
 
@@ -101,9 +118,24 @@ static HIDDEN: AtomicBool = AtomicBool::new(false);
 static MAP_PROBE: AtomicBool = AtomicBool::new(false);
 /// `Logging.EnemyProbe`: how many hostile enemies the minimap sees, in the log.
 static ENEMY_PROBE: AtomicBool = AtomicBool::new(false);
+static DAMAGE_PROBE: AtomicBool = AtomicBool::new(false);
+static DAMAGE_NUMBERS: AtomicBool = AtomicBool::new(false);
+static DAMAGE_MERGE: AtomicBool = AtomicBool::new(false);
+static DAMAGE_MODE: AtomicU8 = AtomicU8::new(DamageMode::Combined as u8);
+static DAMAGE_SCALE: AtomicU32 = AtomicU32::new(1.0f32.to_bits());
+static DAMAGE_DURATION: AtomicU32 = AtomicU32::new(1.2f32.to_bits());
 
 /// Takes every setting from the loaded config.
 pub fn load(config: &Config) {
+    set_damage_numbers(config.damage_numbers.enabled as u8);
+    DAMAGE_MERGE.store(config.damage_numbers.merge, Ordering::Relaxed);
+    DAMAGE_MODE.store(DamageMode::parse(&config.damage_numbers.mode) as u8, Ordering::Relaxed);
+    DAMAGE_SCALE
+        .store((config.damage_numbers.scale.clamp(0.5, 3.0) as f32).to_bits(), Ordering::Relaxed);
+    DAMAGE_DURATION.store(
+        (config.damage_numbers.duration.clamp(0.4, 10.0) as f32).to_bits(),
+        Ordering::Relaxed,
+    );
     let (target, minimap) = (&config.target, &config.minimap);
     set_enabled(target.enabled as u8);
     set_show_numbers(target.numbers as u8);
@@ -154,6 +186,7 @@ pub fn load(config: &Config) {
     TOGGLE_KEY.store(parse_virtual_key(&config.general.toggle_key, 0), Ordering::Relaxed);
     MAP_PROBE.store(config.logging.map_probe, Ordering::Relaxed);
     ENEMY_PROBE.store(config.logging.enemy_probe, Ordering::Relaxed);
+    DAMAGE_PROBE.store(config.logging.damage_probe && config.logging.log_file, Ordering::Relaxed);
     set_minimap_enemies(minimap.layers.enemies as u8);
     store_keys(&ZOOM_IN_KEYS, &minimap.zoom_in_key);
     store_keys(&ZOOM_OUT_KEYS, &minimap.zoom_out_key);
@@ -414,6 +447,22 @@ pub fn enemy_probe() -> bool {
     ENEMY_PROBE.load(Ordering::Relaxed)
 }
 
+pub fn damage_probe() -> bool {
+    DAMAGE_PROBE.load(Ordering::Relaxed)
+}
+
+pub fn damage_numbers() -> bool {
+    DAMAGE_NUMBERS.load(Ordering::Relaxed)
+}
+
+pub fn damage_scale() -> f32 {
+    f32::from_bits(DAMAGE_SCALE.load(Ordering::Relaxed))
+}
+
+pub fn damage_duration() -> f32 {
+    f32::from_bits(DAMAGE_DURATION.load(Ordering::Relaxed))
+}
+
 /// Whether to write the extra diagnostic lines about the map (`Logging.MapProbe`).
 pub fn map_probe() -> bool {
     MAP_PROBE.load(Ordering::Relaxed)
@@ -471,6 +520,25 @@ pub fn set_enabled(value: u8) {
 
 pub fn set_effects_target(value: u8) {
     EFFECTS_TARGET.store(value != 0, Ordering::Relaxed);
+}
+
+pub fn set_damage_numbers(value: u8) {
+    DAMAGE_NUMBERS.store(value != 0, Ordering::Relaxed);
+}
+
+pub fn damage_merge() -> bool {
+    DAMAGE_MERGE.load(Ordering::Relaxed)
+}
+
+pub fn set_damage_mode(index: u8) {
+    DAMAGE_MODE.store(index.min(1), Ordering::Relaxed);
+}
+
+pub fn damage_mode() -> DamageMode {
+    match DAMAGE_MODE.load(Ordering::Relaxed) {
+        1 => DamageMode::Split,
+        _ => DamageMode::Combined,
+    }
 }
 
 pub fn set_weak_damage(value: u8) {

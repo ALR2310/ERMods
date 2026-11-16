@@ -156,11 +156,13 @@ pub fn run() {
     let mut last_kinds: Vec<usize> = Vec::new();
     let mut last_effects: Vec<i32> = Vec::new();
     let mut last_own: Vec<i32> = Vec::new();
+    let mut damage_probe = crate::damage_probe::Probe::default();
     shared::task::run_recurring_safe(
         cs_task,
         "Target",
         CSTaskGroupIndex::FrameBegin,
         move |_data: &FD4TaskData| {
+            damage_probe.tick();
             let read = if settings::enabled() { read() } else { None };
             radar::update(read.as_ref().map(|t| t.offset));
             let npc = read.as_ref().map(|t| t.npc_param_id);
@@ -437,7 +439,10 @@ fn offset_from(player: &PlayerIns, chr: &ChrIns) -> [f32; 2] {
 /// The chr of `handle` via the ChrSet's `get_chr_ins_by_handle` (vtable slot
 /// 3). Not `WorldChrMan::chr_ins_by_handle`: it goes through `rva::get()`,
 /// which panics on game builds newer than the pinned `fromsoftware-rs`.
-fn chr_by_handle(world_chr_man: &WorldChrMan, handle: FieldInsHandle) -> Option<&ChrIns> {
+pub(super) fn chr_by_handle(
+    world_chr_man: &WorldChrMan,
+    handle: FieldInsHandle,
+) -> Option<&ChrIns> {
     let chr_set = world_chr_man.chr_sets.get(handle.selector.container() as usize)?.as_ref()?;
     let chr_set: &ChrSet<ChrIns> = chr_set;
     type GetByHandle =

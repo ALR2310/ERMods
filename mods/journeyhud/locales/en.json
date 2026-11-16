@@ -30,6 +30,18 @@
     "label": "Weak to effects",
     "help": "Show the statuses that build up fastest on the target; the ones it is immune to are faded."
   },
+  "damage_numbers": {
+    "label": "Damage numbers",
+    "help": "Float your hits above enemies, colored by damage type. The game's own numbers over ordinary enemies stay hidden until a restart."
+  },
+  "damage_mode": {
+    "label": "Damage number style",
+    "help": "Combined: one number, its colors stacked by type from white (physical) at the bottom. Split: a number for each type, flying out one by one.",
+    "options": {
+      "combined": "Combined",
+      "split": "Split"
+    }
+  },
   "effects_player": {
     "label": "Your effects",
     "help": "Show the time left of your own effects under the game's status icons."

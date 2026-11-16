@@ -21,6 +21,12 @@ the health, posture, status buildup and active effects of the enemy you are lock
 to. It also shows the time left under your own status icons. It works offline and with Seamless Co-op,
 and needs the DX12 renderer.
 
+Your hits also float above the enemy as damage numbers, with the colors of the damage types: one number
+(`Combined`) or one per type (`Split`). Critical hits (backstabs, ripostes) are orange, bigger, longer and
+marked with a splash. Hits in quick succession can grow one number (`Merge`), and bleed and frost bursts show
+as numbers of their own when their HP loss can be told apart. `[DamageNumbers]` sets the style, size and
+duration; it hides the game's own numbers over ordinary enemies, which needs a restart to change.
+
 ## Installation
 
 1. Download the mod from its [Nexus page](https://www.nexusmods.com/eldenring/mods/11543).
@@ -46,6 +52,7 @@ raise `LoadDelay` in `JourneyHUD.toml`.
 - [docs/buildup.md](docs/buildup.md): the status buildup bars.
 - [docs/effects.md](docs/effects.md): active effects, the state icon row and the player buildup gauge.
 - [docs/weakness.md](docs/weakness.md): the damage types and statuses an enemy is weak to.
+- [docs/damage_numbers.md](docs/damage_numbers.md): floating numbers, hit capture and testing limits.
 - [docs/layout_drag.md](docs/layout_drag.md): dragging the minimap and the target bar.
 - [docs/hdr.md](docs/hdr.md): the overlay on an HDR display.
 - [docs/player_marker.md](docs/player_marker.md): a replaced player arrow (Blue Markers).

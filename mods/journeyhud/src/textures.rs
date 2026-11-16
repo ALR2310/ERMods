@@ -87,6 +87,11 @@ fn decode(png_bytes: &[u8]) -> Result<(Vec<u8>, u32, u32), String> {
     Ok((pixels, info.width, info.height))
 }
 
+/// The pixels of `Bar.png` with its width and height: the grain and light of the game's bars.
+pub fn bar_pixels() -> Result<(Vec<u8>, u32, u32), String> {
+    decode(BAR)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

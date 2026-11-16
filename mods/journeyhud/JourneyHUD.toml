@@ -96,6 +96,15 @@ OffsetX = 35            # Distance from the right edge, pixels at 1080p.
 OffsetY = 20            # Distance from the top edge.
 
 
+[DamageNumbers]
+# Your hits floating above enemies. Hides the game's own numbers (needs a restart).
+Enabled = true
+Mode = "Combined"       # "Combined" = one number, "Split" = one number per damage type.
+Merge = true            # Hits in quick succession grow one number.
+Scale = 1.0             # Text size (0.5 - 3.0).
+Duration = 1.0          # Seconds on screen (0.4 - 10.0).
+
+
 [Rendering]
 # Enable HDR mode, and set the brightness and gamma.
 HDRMode = "Auto"        # "Auto", "SDR", "HDR10" or "scRGB"
@@ -112,3 +121,6 @@ MapProbe = false
 
 # Log how many hostile enemies the minimap sees.
 EnemyProbe = false
+
+# Log hits and HP changes for damage research.
+DamageProbe = false

@@ -54,6 +54,17 @@ pub struct Config {
     pub minimap: Minimap,
     pub rendering: Rendering,
     pub logging: Logging,
+    pub damage_numbers: DamageNumbers,
+}
+
+#[derive(Deserialize, Serialize, Default, Debug, Clone, PartialEq)]
+#[serde(default, deny_unknown_fields, rename_all = "PascalCase")]
+pub struct DamageNumbers {
+    pub enabled: bool,
+    pub mode: String,
+    pub merge: bool,
+    pub scale: f64,
+    pub duration: f64,
 }
 
 #[derive(Deserialize, Serialize, Default, Debug, Clone, PartialEq)]
@@ -210,6 +221,7 @@ pub struct Logging {
     pub map_probe: bool,
     /// How many hostile enemies the minimap sees, in the log (see `settings::enemy_probe`).
     pub enemy_probe: bool,
+    pub damage_probe: bool,
 }
 
 const MIGRATION: Migration =
@@ -374,9 +386,10 @@ Scale = 1.5
     }
 
     #[test]
-    fn the_log_is_on_and_the_map_probe_is_off_by_default() {
+    fn the_log_is_on_and_diagnostics_are_off_by_default() {
         let logging = template().logging;
-        assert!(logging.log_file && !logging.map_probe && !logging.enemy_probe);
+        assert!(logging.log_file);
+        assert!(!logging.map_probe && !logging.enemy_probe && !logging.damage_probe);
         // The enemy dots are off until the player turns them on.
         assert!(!template().minimap.layers.enemies);
     }

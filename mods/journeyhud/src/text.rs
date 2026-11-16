@@ -44,6 +44,36 @@ pub fn add_shadowed(
     add(text, pos, em, color);
 }
 
+/// [add_shadowed] with the color depending on the height within the text: `color_at` gets 0 at the
+/// bottom of the glyphs and 1 at the top.
+pub fn add_shadowed_by_height(
+    text: &str,
+    pos: [f32; 2],
+    em: f32,
+    color_at: impl Fn(f32) -> [f32; 4],
+    shadow: [f32; 4],
+    offset: f32,
+) {
+    add(text, [pos[0] + offset, pos[1] + offset], em, shadow);
+    // SAFETY: called while a frame is being built; the vertices read and written are the ones
+    // `add` has just appended to the draw list's buffer.
+    unsafe {
+        let list = sys::igGetForegroundDrawList();
+        let first = (*list).VtxBuffer.Size as usize;
+        add(text, pos, em, [1.0; 4]);
+        let end = (*list).VtxBuffer.Size as usize;
+        let vertices =
+            std::slice::from_raw_parts_mut((*list).VtxBuffer.Data.add(first), end - first);
+        let (top, bottom) = vertices
+            .iter()
+            .fold((f32::MAX, f32::MIN), |(top, bottom), v| (top.min(v.pos.y), bottom.max(v.pos.y)));
+        let span = (bottom - top).max(1.0);
+        for vertex in vertices {
+            vertex.col = pack(color_at(1.0 - (vertex.pos.y - top) / span));
+        }
+    }
+}
+
 /// ImGui's packed color: red in the low byte, alpha in the high one.
 fn pack([r, g, b, a]: [f32; 4]) -> u32 {
     let byte = |c: f32| (c.clamp(0.0, 1.0) * 255.0 + 0.5) as u32;

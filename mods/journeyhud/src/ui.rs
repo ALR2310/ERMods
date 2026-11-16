@@ -200,6 +200,8 @@ struct HudRenderLoop {
     map: Option<MapLayer>,
     /// `None` when the textures failed to load: the bars are drawn flat.
     textures: Option<Textures>,
+    /// The heavy font of the damage numbers; `None` when it is missing: the default font is used.
+    number_font: Option<crate::damage_numbers::NumberFont>,
 }
 
 /// What was just lost of a bar (health or posture), shown as a block between the current value
@@ -246,6 +248,7 @@ impl ImguiRenderLoop for HudRenderLoop {
     fn initialize<'a>(&'a mut self, ctx: &mut Context, render_context: &'a mut dyn RenderContext) {
         // No imgui.ini next to the game exe.
         ctx.set_ini_filename(None);
+        self.number_font = crate::damage_numbers::load_font(ctx);
         match textures::load(render_context) {
             Ok(loaded) => self.textures = Some(loaded),
             Err(e) => logger::error(&format!("Overlay: textures failed ({e}), flat bars")),
@@ -335,6 +338,9 @@ impl ImguiRenderLoop for HudRenderLoop {
         let wanted = if radar::in_control() { 1.0 } else { 0.0 };
         self.panel_alpha += (wanted - self.panel_alpha) * (dt * FADE_RATE).min(1.0);
         PANEL_ALPHA.store(self.panel_alpha.to_bits(), Ordering::Relaxed);
+        if !hidden && radar::in_control() {
+            crate::damage_numbers::draw(ui, self.area, self.panel_alpha, self.number_font);
+        }
         let icons_wanted = if crate::state_icons::shown() { 1.0 } else { 0.0 };
         self.icons_alpha += (icons_wanted - self.icons_alpha) * (dt * FADE_RATE).min(1.0);
         let layout = Layout {

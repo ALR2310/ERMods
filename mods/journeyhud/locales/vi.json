@@ -30,6 +30,18 @@
     "label": "Yếu hiệu ứng",
     "help": "Hiện các hiệu ứng tích tụ nhanh nhất trên mục tiêu; hiệu ứng miễn nhiễm được làm mờ."
   },
+  "damage_numbers": {
+    "label": "Số sát thương",
+    "help": "Hiện sát thương của bạn nổi trên đầu kẻ địch, tô màu theo loại. Số của game trên quái thường vẫn ẩn cho đến khi khởi động lại."
+  },
+  "damage_mode": {
+    "label": "Kiểu số sát thương",
+    "help": "Gộp: một số, các màu xếp theo loại từ trắng (vật lý) ở dưới. Tách: mỗi loại một số, bay ra lần lượt.",
+    "options": {
+      "combined": "Gộp",
+      "split": "Tách"
+    }
+  },
   "effects_player": {
     "label": "Hiệu ứng của bạn",
     "help": "Hiện thời gian còn lại của các hiệu ứng của bạn dưới hàng icon trạng thái của game."

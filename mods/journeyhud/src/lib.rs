@@ -2,6 +2,8 @@
 
 mod boss_list;
 mod config;
+mod damage_numbers;
+mod damage_probe;
 mod drag;
 mod enemy_tags;
 mod hud_movie;

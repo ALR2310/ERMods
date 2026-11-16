@@ -63,6 +63,16 @@ static WEAK_EFFECTS: Setting = Setting {
     format: menu::format_bool,
     apply: Some(settings::set_weak_effects),
 };
+static DAMAGE_NUMBERS: Setting = Setting {
+    key: "DamageNumbers.Enabled",
+    format: menu::format_bool,
+    apply: Some(settings::set_damage_numbers),
+};
+static DAMAGE_MODE: Setting = Setting {
+    key: "DamageNumbers.Mode",
+    format: |index| settings::DamageMode::NAMES[usize::from(index).min(1)].to_string(),
+    apply: Some(settings::set_damage_mode),
+};
 static EFFECTS_PLAYER: Setting = Setting {
     key: "Player.EffectTimer",
     format: menu::format_bool,
@@ -241,6 +251,23 @@ fn build(b: &mut MenuBuilder) -> Result<(), String> {
     b.toggle(target, &t("weak_effects.label"), &t("weak_effects.help"), &WEAK_EFFECTS, || {
         config::get().target.weak_effects as u8
     })?;
+    b.toggle(
+        target,
+        &t("damage_numbers.label"),
+        &t("damage_numbers.help"),
+        &DAMAGE_NUMBERS,
+        || config::get().damage_numbers.enabled as u8,
+    )?;
+    let modes = [t("damage_mode.options.combined"), t("damage_mode.options.split")];
+    let modes: Vec<&str> = modes.iter().map(String::as_str).collect();
+    b.choice(
+        target,
+        &t("damage_mode.label"),
+        &t("damage_mode.help"),
+        &modes,
+        &DAMAGE_MODE,
+        || settings::DamageMode::parse(&config::get().damage_numbers.mode) as u8,
+    )?;
     b.toggle(
         target,
         &t("effects_player.label"),
@@ -447,6 +474,8 @@ mod tests {
             &EFFECTS_TARGET,
             &WEAK_DAMAGE,
             &WEAK_EFFECTS,
+            &DAMAGE_NUMBERS,
+            &DAMAGE_MODE,
             &EFFECTS_PLAYER,
             &TIMER_STYLE,
             &MINIMAP,
