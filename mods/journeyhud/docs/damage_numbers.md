@@ -19,7 +19,7 @@ from another mod still chains. Nothing else runs in the hook; the frame task dra
 |---|---|---|
 | Damage | `hit_info + 0x228` (i32) | the number; it keeps overkill (574 shown on a 219 HP target) |
 | Components | `hit_info + 0x00`, five floats: physical, magic, fire, lightning, holy | color: the largest element input, physical only when none is present |
-| Critical | `hit_info + 0xD9 == 2` | orange numbers with a jagged orange splash at the left (backstab, riposte), size x1.5, twice as long |
+| Critical | `hit_info + 0xD9 == 2` | a splash mark at the left of the number in its color (backstab, riposte), size x2, twice as long |
 | HP | `chr + 0x190 -> [0] + 0x138` | HP before and after the call |
 | Remaining buildup | `chr + 0x190 -> [+0x20] + 0x10`, seven ints | index 2 = bleed, 4 = frost |
 | Position | `chr_ctrl.physics_model_matrix` row 3 | anchor, raised 1.5 m |
@@ -46,9 +46,9 @@ total and four of the five values reach the hit record, truncated to integers:
 | `+0x23C` | lightning (index 3) |
 | `+0x240` | holy (index 4) |
 
-`Mode` picks what to show: `Combined` (the total, its glyphs colored from the bottom by the five reduced values in the
+`Style` picks what to show: `Gradient` (the total, its glyphs colored from the bottom by the five reduced values in the
 order physical, magic, fire, lightning, holy, each over its share of the height, by per-vertex colors; physical is
-estimated as below) or `Split` (one number per value above zero, flying out one by one in a fan; a critical hit always shows one number, as in `Combined`). Without the element fields (unreadable record) every mode falls back to the input rule.
+estimated as below) or `Split` (one number per value above zero, flying out one by one in a fan, each in its type's color). A critical hit always shows one number, stacked as in `Gradient`. Without the element fields (unreadable record) every style falls back to the input rule. Poison, rot and bursts keep their own colors.
 
 The physical result (index 0) is not stored. The five floats at `hit_info +0x00` that the mod reads are the
 attack inputs, before the reduction. The color comes from those inputs (the larger element input), not from the
@@ -58,22 +58,53 @@ few points (a checked hit: 74 + 51 = 125 against a total of 126), so it is not d
 
 ## Merging quick hits
 
-With `Merge` on, a hit on a target that was hit less than a second before is added to that hit's number instead of
+With `Combo` on, a hit on a target that was hit less than a second before is added to that hit's number instead of
 making a new one: the total, the per-type parts and CRIT (if any of the hits was) are summed, and the number
 rises back to its start in 0.2 s while it swells and brightens, and then lasts a full `Duration` after the last one. Bursts stay apart.
-The summing follows the style: `Split` grows each type's number, `Combined` the share of each color.
+A number of two or more hits has a counter (`x3`) at the top right, in the number's colors; in `Split`
+only the first number has it.
+The summing follows the style: `Split` grows each type's number, `Gradient` the share of each color.
+
+## Colors
+
+`[DamageNumbers.Colors]` holds one `#RRGGBB` per kind (physical, the four elements, bleed, frost, poison, rot, Black Flame), read into
+atomics by `settings::load` so a config reload applies them. The defaults live only in the template; a value that is not
+six hex digits is logged and replaced by the template's. The gradient, the CRIT mark and the combo counter take their color from
+these, so they follow too.
+
+## Black Flame
+
+**Confirmed on 2.7.2.0 for Scouring Black Flame, inferred for the other sources** (`Logging.DamageProbe` records of
+Scouring Black Flame against a lava spell). The game has no flag for Black Flame damage; this is a rule from the effect. The damage of
+Black Flame is ordinary fire in the hit record: components `[0, 0, 490.8, 0, 0]` and results `[319, 0, 0, 0]`. What
+sets it apart is the effect the attack puts on the target: the record holds the effect ids of the attack (`-1` for
+none) from `+0x68`, and for Scouring Black Flame `+0x74` was `0x18C3D8` = 1623000, `[Incantation] Scouring Black
+Flame (DoT Black)`; the target had that effect for the next two seconds, and a lava spell had neither. The mod reads
+eight slots from `+0x68` and takes the fire part of the hit as Black Flame when one of the ids is in the list of
+`SpEffectParam` rows named "DoT Black" (835, 29000, 1621000, 1623000, 1624010, 1625000, 1626001; only 1623000 was
+seen in game, the others come from the row names, and a mod that adds its own Black Flame rows needs them added).
+An attack of that kind with no effect in the record shows as plain fire.
+
+## Poison and scarlet rot ticks
+
+**Seen in game with poison and scarlet rot.** Poison and rot take HP outside the hit call. An enemy you hit is followed for
+30 s after the hit; each frame its HP is read, and while it has an effect with `stateInfo` 2 (poison) or 5 (scarlet
+rot) the HP lost in a frame with no hit on it is added up and shown every 0.6 s as a small green or red number (the
+`DoT` key, damage over time). Frames with a hit, and the 150 ms after one of your hits (a burst can follow), are skipped. The source of
+the status is not known, so ticks of a status someone else put on an enemy you hit show too. When an enemy has both statuses the loss is one number in
+two colors (green below, red above): the HP lost in a frame cannot be told apart by status.
 
 ## Bleed and frost bursts
 
 **Inferred.** A proc does not go through the hit call. When one hit resets the target's bleed or frost buildup by
 more than half its new value, the HP lost in the next 150 ms beyond the hit's own damage becomes a red or cyan
 number. Discarded when: another positive hit lands on that target, the target has poison or rot (`stateInfo` 2 or
-116), both buildups reset at once, the ring overflowed, or the target is gone. Procs that do not reset the buildup
+5), both buildups reset at once, the ring overflowed, or the target is gone. Procs that do not reset the buildup
 by that margin are missed on purpose rather than guessed.
 
 ## Drawing
 
-Size is 42 px at 1080p (63 px for CRIT and bursts) times `Scale`, in Impact (loaded from the Windows fonts folder,
+Size is `FontSize` (42 px at 1080p) times `Scale`; CRIT and bursts are twice that, poison and rot ticks half, the hit counter 0.4, in Impact (loaded from the Windows fonts folder,
 the default font when it is absent), and grows or shrinks with the distance from the camera, full size at 8 m,
 between half and one and a half times (a burst never gets smaller than full size). Each number shrinks to 40% while it falls and fades out; a CRIT or a burst stays twice as long.
 
@@ -83,8 +114,12 @@ touches a character pointer. The anchor stays in the world and is projected each
 frame or a new player character clears them, and the HUD toggle hides them.
 
 The game's own damage number on ordinary enemy tags (`Damage` clip, `enemy_tags.rs`) is moved off the picture when
-the feature is on, keeping the health bar when `HUD.EnemyHPBar` is set. The movie is edited at start, so changing
-that needs a restart.
+`HUD.EnemyDamage` is false, keeping the health bar when `HUD.EnemyHPBar` is set; `EnemyHPBar = false`
+hides both. The key does not depend on `[DamageNumbers]`. The movie is edited at start, so changing that needs a
+restart.
+
+The splash mark is `assets/Crit.png`, drawn for the mod from the outline of a MOBA critical mark (a white image with a
+black outline, tinted with the number's color; not taken from the game).
 
 ## Open risks
 

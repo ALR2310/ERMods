@@ -6,7 +6,8 @@ use std::mem::MaybeUninit;
 use std::sync::atomic::{AtomicBool, AtomicU8, AtomicUsize, Ordering};
 use std::time::{Duration, Instant};
 
-use eldenring::cs::{ChrCtrl, ChrIns};
+use eldenring::cs::{ChrCtrl, ChrIns, FieldInsHandle, WorldChrMan};
+use fromsoftware_shared::FromStatic;
 
 use shared::{codepatch, logger, memscan};
 
@@ -16,6 +17,11 @@ use crate::settings;
 const CALL_AOB: &str = "4D 8B C6 49 8B D4 44 88 6C 24 20 48 8B CD E8 ?? ?? ?? ?? 44 0F B6 A4 24 A8 00 00 00 4D 8B C6 45 0F B6 CC";
 const CALL_AT: usize = 14;
 const LIMIT: usize = 512;
+/// The `SpEffectParam` rows of the Black Flame (their names end with "DoT Black", `docs/damage_numbers.md`):
+/// the tornado, the NPCs', Black Flame, Scouring, Noble Presence, the Ritual and the Blade.
+const BLACK_FLAME: [i32; 7] = [835, 29000, 1621000, 1623000, 1624010, 1625000, 1626001];
+/// Where the hit record keeps the effects the attack puts on its target (`-1` for none), from +0x68.
+const ATTACK_EFFECTS: usize = 0x68;
 const FOLLOW_FRAMES: u32 = 120;
 const FOLLOW_TIME: Duration = Duration::from_secs(2);
 
@@ -49,6 +55,10 @@ pub(super) struct Event {
     /// Fire, magic, lightning and holy after the reduction, truncated.
     pub elements: Option<[i32; 4]>,
     pub hit_kind: Option<u8>,
+    /// The attack puts a Black Flame effect on its target: fire damage of another kind.
+    pub black_flame: bool,
+    /// The first 0x280 bytes of the hit record, copied only for the damage probe.
+    raw: Option<[u32; 160]>,
     pub before: State,
     pub after: State,
     flag: u8,
@@ -71,6 +81,8 @@ impl Event {
             components: Some([151.0, 0.0, 0.0, 0.0, 155.0]),
             elements: None,
             hit_kind: Some(2),
+            black_flame: false,
+            raw: None,
             before: State { hp: Some(219), resist: None },
             after: State { hp: Some(0), resist: None },
             flag: 0,
@@ -93,6 +105,17 @@ impl Slot {
     const fn new() -> Self {
         Self { state: AtomicU8::new(0), event: UnsafeCell::new(MaybeUninit::uninit()) }
     }
+}
+
+/// Where the character stands: the translation row of its physics matrix.
+pub(super) fn position(chr: usize) -> Option<[f32; 3]> {
+    let ctrl =
+        memscan::read_safe::<usize>(chr.wrapping_add(std::mem::offset_of!(ChrIns, chr_ctrl)))
+            .filter(|&p| p >= 0x10000)?;
+    memscan::read_safe::<[f32; 3]>(
+        ctrl.wrapping_add(std::mem::offset_of!(ChrCtrl, physics_model_matrix) + 48),
+    )
+    .filter(|point| point.iter().all(|n| n.is_finite()))
 }
 
 pub(super) fn state(chr: usize) -> State {
@@ -127,20 +150,15 @@ unsafe extern "C" fn observe(ctx: usize, attacker: usize, info: usize, arg4: u64
     let target = memscan::read_safe::<usize>(ctx.wrapping_add(8)).filter(|&p| p >= 0x10000);
     let player = PLAYER.load(Ordering::Relaxed);
     let at = Instant::now();
-    let position = target.and_then(|chr| {
-        let ctrl =
-            memscan::read_safe::<usize>(chr.wrapping_add(std::mem::offset_of!(ChrIns, chr_ctrl)))
-                .filter(|&p| p >= 0x10000)?;
-        memscan::read_safe::<[f32; 3]>(
-            ctrl.wrapping_add(std::mem::offset_of!(ChrCtrl, physics_model_matrix) + 48),
-        )
-        .filter(|point| point.iter().all(|n| n.is_finite()))
-    });
+    let position = target.and_then(position);
     let before = target.map(state).unwrap_or(State { hp: None, resist: None });
     let damage = memscan::read_safe::<i32>(info.wrapping_add(0x228));
     let components = memscan::read_safe::<[f32; 5]>(info);
     let elements = memscan::read_safe::<[i32; 4]>(info.wrapping_add(0x234));
     let hit_kind = memscan::read_safe::<u8>(info.wrapping_add(0xD9));
+    let black_flame = memscan::read_safe::<[i32; 8]>(info.wrapping_add(ATTACK_EFFECTS))
+        .is_some_and(|slots| slots.iter().any(|id| BLACK_FLAME.contains(id)));
+    let raw = settings::damage_probe().then(|| memscan::read_safe::<[u32; 160]>(info)).flatten();
     let attacker_handle = memscan::read_safe::<u64>(attacker.wrapping_add(8));
     let target_handle = target.and_then(|p| memscan::read_safe::<u64>(p.wrapping_add(8)));
     // SAFETY: the game provided these arguments at the original call site.
@@ -158,6 +176,8 @@ unsafe extern "C" fn observe(ctx: usize, attacker: usize, info: usize, arg4: u64
         components,
         elements,
         hit_kind,
+        black_flame,
+        raw,
         before,
         after: target.map(state).unwrap_or(State { hp: None, resist: None }),
         flag,
@@ -184,6 +204,7 @@ struct Watch {
     after_hit_hp: Option<i32>,
     frames: u32,
     started: Instant,
+    effects: Vec<i32>,
 }
 
 impl Probe {
@@ -255,6 +276,19 @@ impl Probe {
                 e.arg4,
                 e.flag
             ));
+            if let Some(raw) = e.raw.filter(|_| e.own && e.damage.is_some_and(|n| n > 0)) {
+                let words: Vec<String> = raw
+                    .iter()
+                    .enumerate()
+                    .filter(|(_, word)| **word != 0)
+                    .map(|(i, word)| format!("+{:#X}={word:#X}", i * 4))
+                    .collect();
+                logger::log(&format!(
+                    "Damage probe: record hit {} {}",
+                    e.sequence.wrapping_add(1),
+                    words.join(" ")
+                ));
+            }
             self.watch(e.sequence.wrapping_add(1), e);
         }
         if dropped != 0 {
@@ -297,6 +331,7 @@ impl Probe {
             after_hit_hp: event.after.hp,
             frames: 0,
             started: Instant::now(),
+            effects: Vec::new(),
         });
     }
 
@@ -305,6 +340,15 @@ impl Probe {
             if memscan::read_safe::<u64>(watch.address + 8) != Some(watch.handle) {
                 logger::log(&format!("Damage probe: follow hit {} target unavailable", watch.hit));
                 return false;
+            }
+            let effects = effect_ids(watch.handle);
+            if effects != watch.effects {
+                logger::log(&format!(
+                    "Damage probe: follow hit {} frame {} effects of the target {effects:?}",
+                    watch.hit,
+                    watch.frames + 1
+                ));
+                watch.effects = effects;
             }
             let current = state(watch.address);
             watch.frames += 1;
@@ -326,6 +370,20 @@ impl Probe {
             !finished && current.hp.is_some()
         });
     }
+}
+
+/// The param ids of the effects on the character of `handle`, sorted.
+fn effect_ids(handle: u64) -> Vec<i32> {
+    let raw = handle.to_ne_bytes();
+    let Some(handle) = memscan::read_safe::<FieldInsHandle>(raw.as_ptr() as usize) else {
+        return Vec::new();
+    };
+    // SAFETY: the accessor returns Err while the manager is unavailable.
+    let Some(world) = (unsafe { WorldChrMan::instance() }).ok() else { return Vec::new() };
+    let Some(chr) = crate::target::chr_by_handle(world, handle) else { return Vec::new() };
+    let mut ids: Vec<i32> = chr.special_effect.entries().map(|entry| entry.param_id).collect();
+    ids.sort_unstable();
+    ids
 }
 
 fn install() -> bool {

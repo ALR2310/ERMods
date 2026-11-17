@@ -21,11 +21,12 @@ bên dưới là máu, posture, tích tụ trạng thái và hiệu ứng đang 
 của nó. Mod cũng hiện thời gian còn lại dưới các icon trạng thái của bạn. Chạy được ở chế độ offline và Seamless Co-op, cần game
 chạy DX12.
 
-Đòn đánh của bạn cũng nổi trên đầu địch dưới dạng số sát thương, tô màu theo loại: một số gộp (`Combined`)
-hoặc mỗi loại một số (`Split`). Đòn chí mạng (đâm sau lưng, riposte) màu cam, to hơn, hiện lâu hơn và có hình
-vụ nổ gai. Các đòn đánh liên tiếp có thể cộng dồn vào một số (`Merge`), còn sát thương nổ Bleed/Frostbite hiện
-thành số riêng khi tách được phần HP mất. Mục `[DamageNumbers]` chỉnh kiểu hiển thị, cỡ chữ và thời gian; số
-mặc định của game trên địch thường bị ẩn, đổi phần này cần khởi động lại.
+Đòn đánh của bạn cũng nổi trên đầu địch dưới dạng số sát thương: một số xếp chồng màu các loại sát thương, hoặc mỗi loại
+một số (`Style`). Đòn chí mạng (đâm sau lưng, riposte) và sát thương nổ Bleed/Frostbite to hơn, hiện lâu hơn, kèm hình vụ nổ
+gai cùng màu với số. Các đòn đánh liên tiếp cộng dồn vào một số kèm bộ đếm số đòn (`Combo`), sát thương độc và thối rữa
+trên địch bạn đã đánh hiện thành số nhỏ (`DoT`), còn sát thương nổ Bleed/Frostbite hiện thành số riêng khi tách được phần HP
+mất. Mục `[DamageNumbers]` chỉnh kiểu hiển thị, cỡ chữ, thời gian và màu (`[DamageNumbers.Colors]`, `#RRGGBB` cho từng loại).
+`HUD.EnemyDamage = false` ẩn số sát thương mặc định của game trên địch thường (cần khởi động lại).
 
 Log giữ thông tin khởi tạo, cảnh báo và lỗi. `Logging.StateChanges` thêm thay đổi mục tiêu, điểm yếu,
 tích tụ và hiệu ứng; các key `*Probe` thêm chi tiết bản đồ, địch và sát thương.

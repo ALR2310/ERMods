@@ -339,7 +339,8 @@ impl ImguiRenderLoop for HudRenderLoop {
         self.panel_alpha += (wanted - self.panel_alpha) * (dt * FADE_RATE).min(1.0);
         PANEL_ALPHA.store(self.panel_alpha.to_bits(), Ordering::Relaxed);
         if !hidden && radar::in_control() {
-            crate::damage_numbers::draw(ui, self.area, self.panel_alpha, self.number_font);
+            let mark = self.textures.as_ref().map(|textures| textures.crit);
+            crate::damage_numbers::draw(ui, self.area, self.panel_alpha, self.number_font, mark);
         }
         let icons_wanted = if crate::state_icons::shown() { 1.0 } else { 0.0 };
         self.icons_alpha += (icons_wanted - self.icons_alpha) * (dt * FADE_RATE).min(1.0);

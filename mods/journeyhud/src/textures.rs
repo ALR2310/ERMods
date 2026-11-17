@@ -13,6 +13,7 @@ const WAKU: &[u8] = include_bytes!("../assets/BarWaku.png");
 const WAKU_LEFT: &[u8] = include_bytes!("../assets/BarWakuL.png");
 const DECO: &[u8] = include_bytes!("../assets/BarDeco.png");
 const DECO_LEFT: &[u8] = include_bytes!("../assets/BarDecoL.png");
+const CRIT: &[u8] = include_bytes!("../assets/Crit.png");
 
 /// Rows of `Bar.png` / `BarBG.png` that are visible (of 26, the rest is
 /// transparent padding), used to size the other textures against the bar.
@@ -54,6 +55,8 @@ pub struct Textures {
     pub waku_left: TextureId,
     pub deco: TextureId,
     pub deco_left: TextureId,
+    /// The mark of a critical hit and of a burst of buildup, white to be tinted (`damage_numbers.rs`).
+    pub crit: TextureId,
 }
 
 pub fn load(ctx: &mut dyn RenderContext) -> Result<Textures, String> {
@@ -70,6 +73,7 @@ pub fn load(ctx: &mut dyn RenderContext) -> Result<Textures, String> {
         waku_left: upload("BarWakuL", WAKU_LEFT)?,
         deco: upload("BarDeco", DECO)?,
         deco_left: upload("BarDecoL", DECO_LEFT)?,
+        crit: upload("Crit", CRIT)?,
     })
 }
 
@@ -107,6 +111,7 @@ mod tests {
             (WAKU_LEFT, (12, 48)),
             (DECO, (2938, 25)),
             (DECO_LEFT, (46, 38)),
+            (CRIT, (256, 256)),
         ] {
             let (pixels, w, h) = decode(png).unwrap();
             assert_eq!((w, h), size);

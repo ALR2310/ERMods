@@ -16,15 +16,17 @@ const OFF_PICTURE_PX: i32 = 5000;
 
 /// `movie` with the bar moved away, `None` to leave it as it is.
 pub fn edit(movie: &[u8]) -> Option<Vec<u8>> {
-    if settings::enemy_hp_bar() && !settings::damage_numbers() {
+    // Without the bar there is no number either.
+    let hide_bar = !settings::enemy_hp_bar();
+    if !hide_bar && settings::enemy_damage() {
         return None;
     }
     let dy = OFF_PICTURE_PX * TWIPS_PER_PX;
-    let edited = if settings::enemy_hp_bar() {
-        gfx::shift_placements(movie, &PATH, &[("Damage", 0, dy)])
-    } else {
+    let edited = if hide_bar {
         gfx::shift_placements(movie, &PATH, &[("HP", 0, dy), ("Damage", 0, dy)])
             .and_then(|hp_moved| gfx::shift_depths(&hp_moved, &PATH, &[(BACKGROUND_DEPTH, 0, dy)]))
+    } else {
+        gfx::shift_placements(movie, &PATH, &[("Damage", 0, dy)])
     };
     match edited {
         Ok(edited) => Some(edited),

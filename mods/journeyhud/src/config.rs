@@ -61,10 +61,47 @@ pub struct Config {
 #[serde(default, deny_unknown_fields, rename_all = "PascalCase")]
 pub struct DamageNumbers {
     pub enabled: bool,
-    pub mode: String,
-    pub merge: bool,
+    pub style: String,
+    pub combo: bool,
+    #[serde(rename = "DoT")]
+    pub dot: bool,
+    pub font_size: f64,
     pub scale: f64,
     pub duration: f64,
+    pub colors: DamageColors,
+}
+
+#[derive(Deserialize, Serialize, Default, Debug, Clone, PartialEq)]
+#[serde(default, deny_unknown_fields, rename_all = "PascalCase")]
+pub struct DamageColors {
+    pub physical: String,
+    pub magic: String,
+    pub fire: String,
+    pub lightning: String,
+    pub holy: String,
+    pub bleed: String,
+    pub frost: String,
+    pub poison: String,
+    pub rot: String,
+    pub black_flame: String,
+}
+
+impl DamageColors {
+    /// In the order of `damage_numbers::Kind`.
+    pub fn all(&self) -> [&str; 10] {
+        [
+            &self.physical,
+            &self.magic,
+            &self.fire,
+            &self.lightning,
+            &self.holy,
+            &self.bleed,
+            &self.frost,
+            &self.poison,
+            &self.rot,
+            &self.black_flame,
+        ]
+    }
 }
 
 #[derive(Deserialize, Serialize, Default, Debug, Clone, PartialEq)]
@@ -110,6 +147,7 @@ pub struct Player {
 pub struct Hud {
     #[serde(rename = "EnemyHPBar")]
     pub enemy_hp_bar: bool,
+    pub enemy_damage: bool,
     pub buildup: Buildup,
     pub rune_counter: RuneCounter,
 }

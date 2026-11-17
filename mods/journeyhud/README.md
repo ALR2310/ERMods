@@ -21,11 +21,12 @@ the health, posture, status buildup and active effects of the enemy you are lock
 to. It also shows the time left under your own status icons. It works offline and with Seamless Co-op,
 and needs the DX12 renderer.
 
-Your hits also float above the enemy as damage numbers, with the colors of the damage types: one number
-(`Combined`) or one per type (`Split`). Critical hits (backstabs, ripostes) are orange, bigger, longer and
-marked with a splash. Hits in quick succession can grow one number (`Merge`), and bleed and frost bursts show
-as numbers of their own when their HP loss can be told apart. `[DamageNumbers]` sets the style, size and
-duration; it hides the game's own numbers over ordinary enemies, which needs a restart to change.
+Your hits also float above the enemy as damage numbers: one with the colors of its damage types stacked, or one per type
+(`Style`). Critical hits (backstabs, ripostes) and the bursts of bleed and frost are bigger and longer, with a splash mark.
+Hits in quick succession grow one number with a hit counter (`Combo`), the poison and scarlet rot ticks on the enemies you hit
+show as small numbers (`DoT`), and bleed and frost bursts show as numbers of their own when their HP loss can be told apart.
+`[DamageNumbers]` sets the style, size, duration and colors (`[DamageNumbers.Colors]`, `#RRGGBB` per type). `HUD.EnemyDamage = false`
+hides the game's own numbers over ordinary enemies (needs a restart).
 
 The log keeps startup information, warnings and errors. `Logging.StateChanges` adds target,
 weakness, buildup and effect changes; the `*Probe` switches add map, enemy and damage details.

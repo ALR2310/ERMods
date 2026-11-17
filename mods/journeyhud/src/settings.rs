@@ -34,18 +34,18 @@ impl TimerStyle {
 }
 
 #[derive(Clone, Copy, PartialEq, Debug)]
-pub enum DamageMode {
-    Combined,
+pub enum DamageStyle {
+    Gradient,
     Split,
 }
 
-impl DamageMode {
-    pub const NAMES: [&'static str; 2] = ["Combined", "Split"];
+impl DamageStyle {
+    pub const NAMES: [&'static str; 2] = ["Gradient", "Split"];
 
     pub fn parse(name: &str) -> Self {
         match name.trim().to_ascii_lowercase().as_str() {
             "split" => Self::Split,
-            _ => Self::Combined,
+            _ => Self::Gradient,
         }
     }
 }
@@ -58,6 +58,7 @@ static SHOW_NUMBERS: AtomicBool = AtomicBool::new(true);
 static BUILDUP: AtomicBool = AtomicBool::new(true);
 static BOSS_BAR: AtomicBool = AtomicBool::new(true);
 static ENEMY_HP_BAR: AtomicBool = AtomicBool::new(true);
+static ENEMY_DAMAGE: AtomicBool = AtomicBool::new(false);
 static RUNE_COUNTER: AtomicBool = AtomicBool::new(false);
 static RUNE_COUNTER_SCALE: AtomicU32 = AtomicU32::new(0x3F33_3333);
 static RUNE_OFFSET_X: AtomicI32 = AtomicI32::new(48);
@@ -121,16 +122,36 @@ static ENEMY_PROBE: AtomicBool = AtomicBool::new(false);
 static DAMAGE_PROBE: AtomicBool = AtomicBool::new(false);
 static STATE_CHANGES: AtomicBool = AtomicBool::new(false);
 static DAMAGE_NUMBERS: AtomicBool = AtomicBool::new(false);
-static DAMAGE_MERGE: AtomicBool = AtomicBool::new(false);
-static DAMAGE_MODE: AtomicU8 = AtomicU8::new(DamageMode::Combined as u8);
+static DAMAGE_COMBO: AtomicBool = AtomicBool::new(false);
+static DAMAGE_DOT: AtomicBool = AtomicBool::new(false);
+static DAMAGE_COLORS: [AtomicU32; 10] = [const { AtomicU32::new(0xFF_FFFF) }; 10];
+static DAMAGE_STYLE: AtomicU8 = AtomicU8::new(DamageStyle::Gradient as u8);
+static DAMAGE_FONT_SIZE: AtomicU32 = AtomicU32::new(42.0f32.to_bits());
 static DAMAGE_SCALE: AtomicU32 = AtomicU32::new(1.0f32.to_bits());
 static DAMAGE_DURATION: AtomicU32 = AtomicU32::new(1.2f32.to_bits());
 
 /// Takes every setting from the loaded config.
 pub fn load(config: &Config) {
     set_damage_numbers(config.damage_numbers.enabled as u8);
-    DAMAGE_MERGE.store(config.damage_numbers.merge, Ordering::Relaxed);
-    DAMAGE_MODE.store(DamageMode::parse(&config.damage_numbers.mode) as u8, Ordering::Relaxed);
+    DAMAGE_COMBO.store(config.damage_numbers.combo, Ordering::Relaxed);
+    DAMAGE_DOT.store(config.damage_numbers.dot, Ordering::Relaxed);
+    DAMAGE_STYLE.store(DamageStyle::parse(&config.damage_numbers.style) as u8, Ordering::Relaxed);
+    let template = crate::config::template().damage_numbers.colors;
+    for ((slot, value), default) in
+        DAMAGE_COLORS.iter().zip(config.damage_numbers.colors.all()).zip(template.all())
+    {
+        let color = parse_color(value).unwrap_or_else(|| {
+            shared::logger::warn(&format!(
+                "Damage number color \"{value}\" is not #RRGGBB, using {default}"
+            ));
+            parse_color(default).unwrap_or(0xFF_FFFF)
+        });
+        slot.store(color, Ordering::Relaxed);
+    }
+    DAMAGE_FONT_SIZE.store(
+        (config.damage_numbers.font_size.clamp(8.0, 120.0) as f32).to_bits(),
+        Ordering::Relaxed,
+    );
     DAMAGE_SCALE
         .store((config.damage_numbers.scale.clamp(0.5, 3.0) as f32).to_bits(), Ordering::Relaxed);
     DAMAGE_DURATION.store(
@@ -143,6 +164,7 @@ pub fn load(config: &Config) {
     set_buildup(target.buildup as u8);
     set_boss_bar(target.boss_bar as u8);
     set_enemy_hp_bar(config.hud.enemy_hp_bar as u8);
+    set_enemy_damage(config.hud.enemy_damage as u8);
     let rune = &config.hud.rune_counter;
     set_rune_counter(rune.enabled as u8);
     set_rune_counter_scale(rune.scale);
@@ -252,6 +274,10 @@ pub fn rune_counter() -> bool {
 /// Whether a boss gets its bars under the game's boss health bar.
 pub fn boss_bar() -> bool {
     BOSS_BAR.load(Ordering::Relaxed)
+}
+
+pub fn enemy_damage() -> bool {
+    ENEMY_DAMAGE.load(Ordering::Relaxed)
 }
 
 pub fn enemy_hp_bar() -> bool {
@@ -461,6 +487,10 @@ pub fn damage_numbers() -> bool {
     DAMAGE_NUMBERS.load(Ordering::Relaxed)
 }
 
+pub fn damage_font_size() -> f32 {
+    f32::from_bits(DAMAGE_FONT_SIZE.load(Ordering::Relaxed))
+}
+
 pub fn damage_scale() -> f32 {
     f32::from_bits(DAMAGE_SCALE.load(Ordering::Relaxed))
 }
@@ -532,18 +562,36 @@ pub fn set_damage_numbers(value: u8) {
     DAMAGE_NUMBERS.store(value != 0, Ordering::Relaxed);
 }
 
-pub fn damage_merge() -> bool {
-    DAMAGE_MERGE.load(Ordering::Relaxed)
+pub fn damage_dot() -> bool {
+    DAMAGE_DOT.load(Ordering::Relaxed)
 }
 
-pub fn set_damage_mode(index: u8) {
-    DAMAGE_MODE.store(index.min(1), Ordering::Relaxed);
+pub fn damage_combo() -> bool {
+    DAMAGE_COMBO.load(Ordering::Relaxed)
 }
 
-pub fn damage_mode() -> DamageMode {
-    match DAMAGE_MODE.load(Ordering::Relaxed) {
-        1 => DamageMode::Split,
-        _ => DamageMode::Combined,
+/// `#RRGGBB` or `RRGGBB` as 0xRRGGBB.
+fn parse_color(text: &str) -> Option<u32> {
+    let digits = text.trim().trim_start_matches('#');
+    // from_str_radix alone would accept a leading `+`.
+    let valid = digits.len() == 6 && digits.bytes().all(|b| b.is_ascii_hexdigit());
+    valid.then(|| u32::from_str_radix(digits, 16).ok()).flatten()
+}
+
+/// The configured color of the damage number kind at `index` (`damage_numbers::Kind`), as RGB 0 to 1.
+pub fn damage_color(index: usize) -> [f32; 3] {
+    let rgb = DAMAGE_COLORS[index].load(Ordering::Relaxed);
+    [16, 8, 0].map(|shift| ((rgb >> shift) & 0xFF) as f32 / 255.0)
+}
+
+pub fn set_damage_style(index: u8) {
+    DAMAGE_STYLE.store(index.min(1), Ordering::Relaxed);
+}
+
+pub fn damage_style() -> DamageStyle {
+    match DAMAGE_STYLE.load(Ordering::Relaxed) {
+        1 => DamageStyle::Split,
+        _ => DamageStyle::Gradient,
     }
 }
 
@@ -594,6 +642,10 @@ pub fn set_rune_counter(value: u8) {
 pub fn set_boss_bar(value: u8) {
     crate::boss_list::warn_if_stale(value != 0);
     BOSS_BAR.store(value != 0, Ordering::Relaxed);
+}
+
+pub fn set_enemy_damage(value: u8) {
+    ENEMY_DAMAGE.store(value != 0, Ordering::Relaxed);
 }
 
 pub fn set_enemy_hp_bar(value: u8) {
@@ -719,7 +771,22 @@ pub fn set_minimap_size(value: f64) {
 
 #[cfg(test)]
 mod tests {
-    use super::{TimerStyle, next_range};
+    use super::{TimerStyle, next_range, parse_color};
+
+    #[test]
+    fn colors_are_read_as_hex_with_or_without_the_hash() {
+        assert_eq!(parse_color("#FF7C23"), Some(0xFF_7C23));
+        assert_eq!(parse_color(" 5f5f6e "), Some(0x5F_5F6E));
+        for wrong in ["", "#FFF", "#GGGGGG", "#FF7C2300", "#+F7C23"] {
+            assert_eq!(parse_color(wrong), None, "{wrong}");
+        }
+    }
+
+    #[test]
+    fn the_template_colors_are_all_valid() {
+        let colors = crate::config::template().damage_numbers.colors;
+        assert!(colors.all().iter().all(|color| parse_color(color).is_some()));
+    }
 
     #[test]
     fn the_timer_style_is_read_by_name_and_defaults_to_all() {

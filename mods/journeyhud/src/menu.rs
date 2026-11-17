@@ -43,6 +43,11 @@ static ENEMY_HP_BAR: Setting = Setting {
     format: menu::format_bool,
     apply: Some(settings::set_enemy_hp_bar),
 };
+static ENEMY_DAMAGE: Setting = Setting {
+    key: "HUD.EnemyDamage",
+    format: menu::format_bool,
+    apply: Some(settings::set_enemy_damage),
+};
 static RUNE_COUNTER: Setting = Setting {
     key: "HUD.RuneCounter.Enabled",
     format: menu::format_bool,
@@ -68,10 +73,10 @@ static DAMAGE_NUMBERS: Setting = Setting {
     format: menu::format_bool,
     apply: Some(settings::set_damage_numbers),
 };
-static DAMAGE_MODE: Setting = Setting {
-    key: "DamageNumbers.Mode",
-    format: |index| settings::DamageMode::NAMES[usize::from(index).min(1)].to_string(),
-    apply: Some(settings::set_damage_mode),
+static DAMAGE_STYLE: Setting = Setting {
+    key: "DamageNumbers.Style",
+    format: |index| settings::DamageStyle::NAMES[usize::from(index).min(1)].to_string(),
+    apply: Some(settings::set_damage_style),
 };
 static EFFECTS_PLAYER: Setting = Setting {
     key: "Player.EffectTimer",
@@ -242,6 +247,9 @@ fn build(b: &mut MenuBuilder) -> Result<(), String> {
     b.toggle(target, &t("enemy_hp_bar.label"), &t("enemy_hp_bar.help"), &ENEMY_HP_BAR, || {
         config::get().hud.enemy_hp_bar as u8
     })?;
+    b.toggle(target, &t("enemy_damage.label"), &t("enemy_damage.help"), &ENEMY_DAMAGE, || {
+        config::get().hud.enemy_damage as u8
+    })?;
     b.toggle(target, &t("effects.label"), &t("effects.help"), &EFFECTS_TARGET, || {
         config::get().target.effects as u8
     })?;
@@ -258,15 +266,15 @@ fn build(b: &mut MenuBuilder) -> Result<(), String> {
         &DAMAGE_NUMBERS,
         || config::get().damage_numbers.enabled as u8,
     )?;
-    let modes = [t("damage_mode.options.combined"), t("damage_mode.options.split")];
-    let modes: Vec<&str> = modes.iter().map(String::as_str).collect();
+    let styles = [t("damage_style.options.gradient"), t("damage_style.options.split")];
+    let styles: Vec<&str> = styles.iter().map(String::as_str).collect();
     b.choice(
         target,
-        &t("damage_mode.label"),
-        &t("damage_mode.help"),
-        &modes,
-        &DAMAGE_MODE,
-        || settings::DamageMode::parse(&config::get().damage_numbers.mode) as u8,
+        &t("damage_style.label"),
+        &t("damage_style.help"),
+        &styles,
+        &DAMAGE_STYLE,
+        || settings::DamageStyle::parse(&config::get().damage_numbers.style) as u8,
     )?;
     b.toggle(
         target,
@@ -470,12 +478,13 @@ mod tests {
             &BUILDUP,
             &BOSS_BAR,
             &ENEMY_HP_BAR,
+            &ENEMY_DAMAGE,
             &RUNE_COUNTER,
             &EFFECTS_TARGET,
             &WEAK_DAMAGE,
             &WEAK_EFFECTS,
             &DAMAGE_NUMBERS,
-            &DAMAGE_MODE,
+            &DAMAGE_STYLE,
             &EFFECTS_PLAYER,
             &TIMER_STYLE,
             &MINIMAP,

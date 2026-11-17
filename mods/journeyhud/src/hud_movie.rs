@@ -21,7 +21,7 @@ fn edit(movie: &[u8]) -> Option<Vec<u8>> {
 /// Hooks the movie open (on a thread of its own: it waits for the game's code). Only when an
 /// option that edits it is on, read when the mod starts.
 pub fn install() {
-    if !settings::boss_bar() && settings::enemy_hp_bar() && !settings::damage_numbers() {
+    if !settings::boss_bar() && settings::enemy_hp_bar() && settings::enemy_damage() {
         return;
     }
     std::thread::spawn(|| {

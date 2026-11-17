@@ -4,17 +4,18 @@ use std::sync::Mutex;
 use std::sync::atomic::{AtomicU32, Ordering};
 use std::time::{Duration, Instant};
 
-use eldenring::cs::{CSCam, CSCamera, CSMenuManImp, FieldInsHandle, WorldChrMan};
+use eldenring::cs::{CSCam, CSCamera, CSMenuManImp, ChrIns, FieldInsHandle, WorldChrMan};
 use fromsoftware_shared::FromStatic;
-use hudhook::imgui::{Context, FontId, FontSource, Ui};
+use hudhook::imgui::{Context, FontId, FontSource, TextureId, Ui};
 use shared::memscan;
 
-use crate::damage_probe::{Event, state};
+use crate::damage_probe::{Event, position, state};
 use crate::{settings, target, text};
 
-/// Pixel sizes at 1080p: a plain hit, and a critical hit or a burst.
-const HIT_PX: f32 = 42.0;
-const BIG_PX: f32 = 63.0;
+/// Sizes as multiples of the `FontSize` setting: a critical hit or a burst, a DoT tick, the hit counter.
+const CRIT_SIZE: f32 = 2.0;
+const DOT_SIZE: f32 = 0.5;
+const COMBO_SIZE: f32 = 0.4;
 /// A number falls this far (1080p pixels) over its life while it shrinks by this fraction.
 const FALL_PX: f32 = 85.0;
 const SHRINK: f32 = 0.6;
@@ -25,18 +26,20 @@ const SPLIT_STAGGER: f32 = 0.07;
 const FAN_PX: f32 = 60.0;
 /// How much of the bar texture's shading the digits take (0 flat, 1 as dark as its darkest).
 const TEXTURE_STRENGTH: f32 = 0.5;
-/// A critical hit's numbers are this color instead of the type's.
-const CRIT_COLOR: [f32; 3] = [0.96, 0.50, 0.22];
 /// A number that takes another hit rises back to its start in `REWIND` seconds, and swells and
 /// brightens for `POP` seconds.
 const REWIND: f32 = 0.2;
 const POP: f32 = 0.25;
 const POP_SCALE: f32 = 0.35;
 /// The font is rasterized once at this size, so the numbers stay sharp up to it.
-const FONT_PX: f32 = 72.0;
+const FONT_PX: f32 = 96.0;
 /// A number is full size at this distance from the camera, smaller farther and larger nearer.
 const FULL_SIZE_METERS: f32 = 8.0;
-/// Hits on one target this close together grow one number (`DamageNumbers.Merge`).
+/// An enemy is followed for its poison and rot this long after a hit of yours; its ticks show at
+/// most this often, adding up in between.
+const DOT_TRACK: Duration = Duration::from_secs(30);
+const DOT_PERIOD: Duration = Duration::from_millis(600);
+/// Hits on one target this close together grow one number (`DamageNumbers.Combo`).
 const MERGE_WINDOW: Duration = Duration::from_millis(1000);
 const BURST_WINDOW: Duration = Duration::from_millis(150);
 const STALE: Duration = Duration::from_millis(500);
@@ -49,6 +52,7 @@ static DIGIT_TOP: AtomicU32 = AtomicU32::new(0.17f32.to_bits());
 static DIGIT_BOTTOM: AtomicU32 = AtomicU32::new(0.92f32.to_bits());
 static LATEST: Mutex<Option<Snapshot>> = Mutex::new(None);
 
+/// The order is that of `DamageColors::all`, which the configured colors are indexed by.
 #[derive(Clone, Copy, Debug, PartialEq)]
 enum Kind {
     Physical,
@@ -58,31 +62,26 @@ enum Kind {
     Holy,
     Bleed,
     Frost,
+    Poison,
+    Rot,
+    BlackFlame,
 }
 
 impl Kind {
     fn color(self) -> [f32; 3] {
-        match self {
-            Self::Physical => [0.95, 0.95, 0.90],
-            Self::Magic => [0.345, 0.553, 0.941],
-            Self::Fire => [1.0, 0.486, 0.137],
-            Self::Lightning => [1.0, 0.925, 0.275],
-            Self::Holy => [1.0, 0.878, 0.647],
-            Self::Bleed => [0.953, 0.086, 0.082],
-            Self::Frost => [0.702, 0.851, 1.0],
-        }
+        settings::damage_color(self as usize)
     }
 }
 
 /// The damage after the reduction per type, those above zero. Physical is what the total keeps beyond
 /// the elements: it is off by a few points from the truncation of each value.
-fn parts(total: i32, elements: Option<[i32; 4]>) -> Option<Vec<(Kind, i32)>> {
+fn parts(total: i32, elements: Option<[i32; 4]>, black_flame: bool) -> Option<Vec<(Kind, i32)>> {
     let [fire, magic, lightning, holy] = elements?;
     let physical = total - fire - magic - lightning - holy;
     let all = [
         (Kind::Physical, physical),
         (Kind::Magic, magic),
-        (Kind::Fire, fire),
+        (if black_flame { Kind::BlackFlame } else { Kind::Fire }, fire),
         (Kind::Lightning, lightning),
         (Kind::Holy, holy),
     ];
@@ -151,6 +150,8 @@ struct Popup {
     color: [f32; 3],
     /// The color and share of each type of a combined number, bottom first; empty for a flat color.
     layers: Vec<([f32; 3], f32)>,
+    /// How many hits the number adds up; the counter shows from 2.
+    hits: u32,
     /// Whether a later hit was added, and how far through its life the number was then.
     merged: bool,
     from: f32,
@@ -171,6 +172,10 @@ impl Popup {
 
     fn burst(&self) -> bool {
         matches!(self.kind, Kind::Bleed | Kind::Frost)
+    }
+
+    fn dot(&self) -> bool {
+        matches!(self.kind, Kind::Poison | Kind::Rot)
     }
 
     fn life(&self) -> f32 {
@@ -209,8 +214,18 @@ struct Combo {
     parts: Vec<(Kind, i32)>,
     critical: bool,
     last: Instant,
+    hits: u32,
     merged: bool,
     from: f32,
+}
+
+/// An enemy hit by the player, followed for the HP that poison or scarlet rot takes from it.
+struct Dot {
+    handle: u64,
+    hp: i32,
+    hit_at: Instant,
+    shown_at: Instant,
+    loss: i64,
 }
 
 struct Pending {
@@ -276,6 +291,8 @@ pub(super) struct Tracker {
     popups: Vec<Popup>,
     pending: Vec<Pending>,
     combos: Vec<Combo>,
+    dots: Vec<Dot>,
+    dot_sequence: usize,
     last: Option<Instant>,
     player: usize,
 }
@@ -303,12 +320,14 @@ impl Tracker {
             self.popups.clear();
             self.pending.clear();
             self.combos.clear();
+            self.dots.clear();
         }
         if active && !changed {
             self.popups.retain(|p| p.at.elapsed().as_secs_f32() < p.lasts());
             for event in events {
                 self.hit(event);
             }
+            self.follow_dots(events);
             if dropped {
                 self.pending.clear();
             }
@@ -349,7 +368,7 @@ impl Tracker {
     }
 
     fn hit(&mut self, event: &Event) {
-        self.hit_with(event, settings::damage_merge());
+        self.hit_with(event, settings::damage_combo());
     }
 
     /// Adds the damage to the number the target still has from a hit just before, when `merge`.
@@ -376,6 +395,7 @@ impl Tracker {
             .fold(0.0, f32::max);
         let combo = &mut self.combos[index];
         combo.merged = true;
+        combo.hits += 1;
         combo.from = from;
         combo.total += hit.total;
         combo.critical |= hit.critical;
@@ -400,14 +420,14 @@ impl Tracker {
     /// Puts the numbers of `combo` on screen, and returns the plain one the bursts are based on.
     fn show(&mut self, combo: &Combo, anchor: [f32; 3]) -> Popup {
         let kind = combo.parts.iter().max_by_key(|p| p.1).map_or(Kind::Physical, |p| p.0);
-        let color_of = |kind: Kind| if combo.critical { CRIT_COLOR } else { kind.color() };
         let popup = Popup {
             handle: combo.handle,
             anchor,
             label: combo.total.to_string(),
             kind,
-            color: color_of(kind),
+            color: kind.color(),
             layers: Vec::new(),
+            hits: combo.hits,
             merged: combo.merged,
             from: combo.from,
             fan: 0.0,
@@ -416,24 +436,25 @@ impl Tracker {
             sequence: combo.sequence,
             at: combo.last,
         };
-        match settings::damage_mode() {
-            settings::DamageMode::Split if !combo.critical => {
+        match settings::damage_style() {
+            settings::DamageStyle::Split if !combo.critical => {
                 let count = combo.parts.len();
                 for (row, &(kind, value)) in combo.parts.iter().enumerate() {
                     self.push(Popup {
                         label: value.to_string(),
                         kind,
-                        color: color_of(kind),
+                        color: kind.color(),
                         row,
                         fan: row as f32 - (count - 1) as f32 / 2.0,
                         critical: popup.critical && row == 0,
+                        hits: if row == 0 { popup.hits } else { 1 },
                         ..popup.clone()
                     });
                 }
             }
-            settings::DamageMode::Combined | settings::DamageMode::Split => {
+            _ => {
                 let sum = combo.parts.iter().map(|p| p.1).sum::<i32>().max(1) as f32;
-                let layers = if combo.critical || combo.parts.len() < 2 {
+                let layers = if combo.parts.len() < 2 {
                     Vec::new()
                 } else {
                     combo.parts.iter().map(|&(k, v)| (k.color(), v as f32 / sum)).collect()
@@ -464,8 +485,23 @@ impl Tracker {
             return;
         }
         anchor[1] += 1.5;
-        let hit_parts = parts(damage, event.elements)
-            .unwrap_or_else(|| vec![(element(event.components), damage)]);
+        match self.dots.iter_mut().find(|d| d.handle == handle) {
+            Some(dot) => dot.hit_at = event.at,
+            None => self.dots.push(Dot {
+                handle,
+                hp: event.after.hp.unwrap_or(0),
+                hit_at: event.at,
+                shown_at: event.at,
+                loss: 0,
+            }),
+        }
+        let hit_parts = parts(damage, event.elements, event.black_flame).unwrap_or_else(|| {
+            let kind = match element(event.components) {
+                Kind::Fire if event.black_flame => Kind::BlackFlame,
+                kind => kind,
+            };
+            vec![(kind, damage)]
+        });
         let combo = self.combine(
             Combo {
                 handle,
@@ -474,6 +510,7 @@ impl Tracker {
                 parts: hit_parts,
                 critical: event.hit_kind == Some(2),
                 last: event.at,
+                hits: 1,
                 merged: false,
                 from: 0.0,
             },
@@ -490,6 +527,7 @@ impl Tracker {
                 kind,
                 color: kind.color(),
                 layers: Vec::new(),
+                hits: 1,
                 merged: false,
                 from: 0.0,
                 critical: false,
@@ -498,6 +536,81 @@ impl Tracker {
             hp: after,
             loss: (i64::from(before) - i64::from(after) - i64::from(damage)).max(0),
         });
+    }
+
+    /// The HP that poison or scarlet rot takes from the enemies hit lately becomes small numbers: the
+    /// loss of a frame with no hit on the enemy, while it has the status, adds up until the next one.
+    fn follow_dots(&mut self, events: &[Event]) {
+        if !settings::damage_dot() {
+            self.dots.clear();
+            return;
+        }
+        // SAFETY: singleton access fails while the world is unavailable.
+        let world = unsafe { WorldChrMan::instance() }.ok();
+        let hit = |handle: u64| {
+            events.iter().any(|e| {
+                e.target == Some(handle)
+                    && (e.damage.is_some_and(|n| n > 0)
+                        || e.before.hp.zip(e.after.hp).is_some_and(|(a, b)| a > b))
+            })
+        };
+        let mut ready = Vec::new();
+        self.dots.retain_mut(|dot| {
+            if dot.hit_at.elapsed() > DOT_TRACK {
+                return false;
+            }
+            let raw = dot.handle.to_ne_bytes();
+            let handle = memscan::read_safe::<FieldInsHandle>(raw.as_ptr() as usize);
+            let chr =
+                world.zip(handle).and_then(|(world, handle)| target::chr_by_handle(world, handle));
+            let Some(chr) = chr else { return false };
+            let address = std::ptr::from_ref(chr) as usize;
+            let Some(hp) = state(address).hp else { return false };
+            let lost = i64::from(dot.hp) - i64::from(hp);
+            dot.hp = hp;
+            // A hit, and the burst a hit can set off right after it, take their own HP.
+            if hit(dot.handle) || dot.hit_at.elapsed() < BURST_WINDOW {
+                return true;
+            }
+            let statuses = dot_statuses(chr);
+            let Some(&kind) = statuses.last() else {
+                dot.loss = 0;
+                return true;
+            };
+            dot.loss += lost.max(0);
+            if dot.loss > 0 && (hp <= 0 || dot.shown_at.elapsed() >= DOT_PERIOD) {
+                if let Some(mut anchor) = position(address) {
+                    anchor[1] += 1.0;
+                    ready.push((dot.handle, anchor, std::mem::take(&mut dot.loss), kind, statuses));
+                }
+                dot.shown_at = Instant::now();
+            }
+            hp > 0
+        });
+        for (handle, anchor, loss, kind, statuses) in ready {
+            self.dot_sequence = self.dot_sequence.wrapping_add(1);
+            self.push(Popup {
+                handle,
+                anchor,
+                label: loss.to_string(),
+                kind,
+                color: kind.color(),
+                // The loss of both statuses is one number: which part is whose is not known.
+                layers: if statuses.len() > 1 {
+                    statuses.iter().map(|k| (k.color(), 1.0 / statuses.len() as f32)).collect()
+                } else {
+                    Vec::new()
+                },
+                hits: 1,
+                merged: false,
+                from: 0.0,
+                fan: 0.0,
+                row: 0,
+                critical: false,
+                sequence: self.dot_sequence,
+                at: Instant::now(),
+            });
+        }
     }
 
     fn follow(&mut self) {
@@ -512,12 +625,7 @@ impl Tracker {
             let Some(chr) = chr else { return false };
             // Poison and rot tick outside the intercepted hit. Reject them rather
             // than guessing how much of a coinciding HP delta belongs to the burst.
-            if chr.special_effect.entries().any(|entry| {
-                // SAFETY: the live effect entry owns this param row for this frame.
-                entry
-                    .param_data
-                    .is_some_and(|row| matches!(unsafe { row.as_ref() }.state_info(), 2 | 116))
-            }) {
+            if !dot_statuses(chr).is_empty() {
                 return false;
             }
             let Some(hp) = state(std::ptr::from_ref(chr) as usize).hp else { return false };
@@ -541,6 +649,26 @@ impl Tracker {
             self.push(popup);
         }
     }
+}
+
+/// The statuses of `chr` that take HP from it over time, poison before scarlet rot, by the `stateInfo`
+/// of its effects (`docs/effects.md`).
+fn dot_statuses(chr: &ChrIns) -> Vec<Kind> {
+    let mut found = Vec::new();
+    for entry in chr.special_effect.entries() {
+        // SAFETY: the live effect entry owns this param row for this frame.
+        let Some(row) = entry.param_data.map(|row| unsafe { row.as_ref() }) else { continue };
+        let kind = match row.state_info() {
+            2 => Kind::Poison,
+            5 => Kind::Rot,
+            _ => continue,
+        };
+        if !found.contains(&kind) {
+            found.push(kind);
+        }
+    }
+    found.sort_by_key(|kind| *kind as u8);
+    found
 }
 
 /// The font handle is a raw pointer; it is made and used on the render thread only.
@@ -619,7 +747,13 @@ fn texture_digits(ctx: &mut Context, id: FontId) -> Result<(), String> {
     Ok(())
 }
 
-pub fn draw(ui: &Ui, area: [f32; 4], alpha: f32, font: Option<NumberFont>) {
+pub fn draw(
+    ui: &Ui,
+    area: [f32; 4],
+    alpha: f32,
+    font: Option<NumberFont>,
+    mark: Option<TextureId>,
+) {
     if !settings::damage_numbers() {
         return;
     }
@@ -654,89 +788,89 @@ pub fn draw(ui: &Ui, area: [f32; 4], alpha: f32, font: Option<NumberFont>) {
         pos[0] += side * (30.0 + 45.0 * t) * scale;
         pos[0] += popup.fan * FAN_PX * (0.6 + 0.9 * t) * scale;
         pos[1] += FALL_PX * t * t * scale;
-        let em = if popup.critical || popup.burst() { BIG_PX } else { HIT_PX }
-            * scale
-            * (1.0 - SHRINK * t)
-            * (1.0 + POP_SCALE * pulse);
+        let unit =
+            settings::damage_font_size() * scale * (1.0 - SHRINK * t) * (1.0 + POP_SCALE * pulse);
+        let em = unit
+            * if popup.critical || popup.burst() {
+                CRIT_SIZE
+            } else if popup.dot() {
+                DOT_SIZE
+            } else {
+                1.0
+            };
+        let marked = popup.critical || popup.burst();
         let label = popup.label;
         let size = text::measure(ui, &label, em);
         pos[0] -= size[0] * 0.5;
         pos[1] -= size[1] * 0.5;
         let a = alpha * (1.0 - t);
         let flash = |c: f32| c + (1.0 - c) * 0.6 * pulse;
-        let [r, g, b] = popup.color.map(flash);
         let shadow = [0.0, 0.0, 0.0, a];
-        if popup.layers.is_empty() {
-            text::add_shadowed(&label, pos, em, [r, g, b, a], shadow, 2.0 * scale);
-        } else {
-            let color_at = |height: f32| {
-                let [r, g, b] = layer_color(&popup.layers, height).map(flash);
-                [r, g, b, a]
-            };
-            text::add_shadowed_by_height(&label, pos, em, color_at, shadow, 2.0 * scale);
+        // The color at a height of the number, 0 at its bottom: one color, or a color per type.
+        let color_at = |height: f32| {
+            let [r, g, b] = if popup.layers.is_empty() {
+                popup.color
+            } else {
+                layer_color(&popup.layers, height)
+            }
+            .map(flash);
+            [r, g, b, a]
+        };
+        let paint = |text: &str, at: [f32; 2], size: f32| {
+            if popup.layers.is_empty() {
+                text::add_shadowed(text, at, size, color_at(0.0), shadow, 2.0 * scale);
+            } else {
+                text::add_shadowed_by_height(text, at, size, color_at, shadow, 2.0 * scale);
+            }
+        };
+        paint(&label, pos, em);
+        if popup.hits > 1 {
+            let top = f32::from_bits(DIGIT_TOP.load(Ordering::Relaxed)) * em;
+            let at = [pos[0] + size[0] + em * 0.04, pos[1] + top - em * 0.12];
+            paint(&format!("x{}", popup.hits), at, unit * COMBO_SIZE);
         }
-        if popup.critical {
+        if let Some(mark) = mark.filter(|_| marked) {
             let top = f32::from_bits(DIGIT_TOP.load(Ordering::Relaxed)) * em;
             let bottom = f32::from_bits(DIGIT_BOTTOM.load(Ordering::Relaxed)) * em;
-            let mark = bottom - top;
-            let center = [pos[0] - em * 0.08 - mark / 2.0, pos[1] + (top + bottom) / 2.0];
-            draw_burst(ui, center, mark, a);
+            let side = bottom - top;
+            let center = [pos[0] - em * 0.08 - side / 2.0, pos[1] + (top + bottom) / 2.0];
+            let bands = if popup.layers.is_empty() { 1 } else { MARK_BANDS };
+            draw_mark(ui, mark, center, side, bands, color_at);
         }
     }
 }
 
-/// The outline of the critical mark in a unit square, traced from the art it copies: a splat whose
-/// upper left is jagged around one long spike, and whose right and bottom sides are straight.
-const SPLASH: [[f32; 2]; 14] = [
-    [0.0, 0.0],
-    [0.604, 0.378],
-    [0.64, 0.36],
-    [0.685, 0.189],
-    [0.73, 0.342],
-    [0.829, 0.505],
-    [1.0, 0.099],
-    [0.991, 0.991],
-    [0.081, 1.0],
-    [0.432, 0.874],
-    [0.486, 0.829],
-    [0.342, 0.73],
-    [0.189, 0.685],
-    [0.387, 0.613],
-];
-/// A point inside the outline that sees all of it, where the triangles of the fill meet.
-const SPLASH_HUB: [f32; 2] = [0.82, 0.82];
+/// `Crit.png` has a margin around the splat: 16 of its 256 pixels on each side.
+const MARK_MARGIN: f32 = 256.0 / 224.0;
 
-/// The critical mark with its center at `center` and its body `size` wide: red-orange at the top left
-/// to orange at the bottom right, with a black outline.
-fn draw_burst(ui: &Ui, center: [f32; 2], size: f32, alpha: f32) {
-    const BANDS: usize = 4;
+/// Horizontal slices of the mark when its color changes with the height.
+const MARK_BANDS: usize = 12;
+
+/// The mark of a critical hit or a burst, its splat `side` wide around `center`, cut into `bands`
+/// slices each in the color `color_at` gives for its height (0 at the bottom of the splat, 1 at the top).
+fn draw_mark(
+    ui: &Ui,
+    texture: TextureId,
+    [x, y]: [f32; 2],
+    side: f32,
+    bands: usize,
+    color_at: impl Fn(f32) -> [f32; 4],
+) {
+    let half = side * MARK_MARGIN / 2.0;
     let draw = ui.get_foreground_draw_list();
-    let origin = [center[0] - size / 2.0, center[1] - size / 2.0];
-    let place = |unit: [f32; 2]| [origin[0] + unit[0] * size, origin[1] + unit[1] * size];
-    let toward = |from: [f32; 2], to: [f32; 2], k: usize| {
-        let f = k as f32 / BANDS as f32;
-        [from[0] + (to[0] - from[0]) * f, from[1] + (to[1] - from[1]) * f]
-    };
-    // The fill is a fan from the hub, each triangle cut into bands so the color changes smoothly.
-    for (i, &a) in SPLASH.iter().enumerate() {
-        let b = SPLASH[(i + 1) % SPLASH.len()];
-        for k in 0..BANDS {
-            let (a0, b0) = (toward(SPLASH_HUB, a, k), toward(SPLASH_HUB, b, k));
-            let (a1, b1) = (toward(SPLASH_HUB, a, k + 1), toward(SPLASH_HUB, b, k + 1));
-            let middle = [(a0[0] + b1[0]) / 2.0, (a0[1] + b1[1]) / 2.0];
-            let t = (((middle[0] + middle[1]) * 0.5 - 0.1) / 0.7).clamp(0.0, 1.0);
-            let color = [0.74 + 0.22 * t, 0.25 + 0.31 * t, 0.19 + 0.06 * t, alpha];
-            for corners in [[a0, a1, b1], [a0, b1, b0]] {
-                let [p, q, r] = corners.map(place);
-                draw.add_triangle(p, q, r, color).filled(true).build();
-            }
-        }
-    }
-    let black = [0.0, 0.0, 0.0, alpha];
-    let width = (size * 0.06).max(2.0);
-    for (i, &a) in SPLASH.iter().enumerate() {
-        let b = SPLASH[(i + 1) % SPLASH.len()];
-        draw.add_line(place(a), place(b), black).thickness(width).build();
+    for band in 0..bands {
+        let (from, to) = (band as f32 / bands as f32, (band + 1) as f32 / bands as f32);
+        // Where the middle of the slice is within the splat, which the margin frames in the image.
+        let middle = (((from + to) / 2.0 - 0.5) * MARK_MARGIN + 0.5).clamp(0.0, 1.0);
+        draw.add_image(
+            texture,
+            [x - half, y - half + 2.0 * half * from],
+            [x + half, y - half + 2.0 * half * to],
+        )
+        .uv_min([0.0, from])
+        .uv_max([1.0, to])
+        .col(color_at(1.0 - middle))
+        .build();
     }
 }
 
@@ -833,6 +967,7 @@ mod tests {
         tracker.hit_with(&event, true);
         assert_eq!(tracker.popups.len(), 1);
         assert_eq!(tracker.popups[0].label, "100");
+        assert_eq!(tracker.popups[0].hits, 2);
         assert!(tracker.popups[0].critical);
         event.target = Some(9);
         tracker.hit_with(&event, true);
@@ -843,11 +978,12 @@ mod tests {
 
     #[test]
     fn parts_give_physical_what_the_elements_leave_of_the_total() {
-        let parts = parts(126, Some([0, 0, 0, 51])).unwrap();
+        let parts = parts(126, Some([0, 0, 0, 51]), false).unwrap();
         assert_eq!(parts, [(Kind::Physical, 75), (Kind::Holy, 51)]);
-        assert_eq!(super::parts(40, Some([0, 40, 0, 0])).unwrap(), [(Kind::Magic, 40)]);
-        assert!(super::parts(0, Some([0; 4])).is_none());
-        assert!(super::parts(40, None).is_none());
+        assert_eq!(super::parts(40, Some([0, 40, 0, 0]), false).unwrap(), [(Kind::Magic, 40)]);
+        assert!(super::parts(0, Some([0; 4]), false).is_none());
+        assert!(super::parts(40, None, false).is_none());
+        assert_eq!(super::parts(30, Some([30, 0, 0, 0]), true).unwrap(), [(Kind::BlackFlame, 30)]);
     }
 
     #[test]

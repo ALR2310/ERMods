@@ -32,13 +32,13 @@
   },
   "damage_numbers": {
     "label": "Số sát thương",
-    "help": "Hiện sát thương của bạn nổi trên đầu kẻ địch, tô màu theo loại. Số của game trên quái thường vẫn ẩn cho đến khi khởi động lại."
+    "help": "Hiện sát thương của bạn nổi trên đầu kẻ địch, tô màu theo loại."
   },
-  "damage_mode": {
+  "damage_style": {
     "label": "Kiểu số sát thương",
-    "help": "Gộp: một số, các màu xếp theo loại từ trắng (vật lý) ở dưới. Tách: mỗi loại một số, bay ra lần lượt.",
+    "help": "Chuyển sắc: một số, màu các loại xếp chồng. Tách: mỗi loại một số, bay ra lần lượt.",
     "options": {
-      "combined": "Gộp",
+      "gradient": "Chuyển sắc",
       "split": "Tách"
     }
   },
@@ -70,6 +70,10 @@
   "enemy_hp_bar": {
     "label": "Thanh máu và sát thương kẻ địch",
     "help": "Hiện thanh máu và số sát thương nổi trên đầu kẻ địch thường của game; tắt thì ẩn đi. Cần khởi động lại."
+  },
+  "enemy_damage": {
+    "label": "Số sát thương của game",
+    "help": "Hiện số sát thương mà game nổi trên đầu địch thường; tắt thì ẩn (số của mod nằm ở mục Số sát thương). Cần khởi động lại."
   },
   "rune_counter": {
     "label": "Bộ đếm rune ở góc trên phải",

@@ -32,13 +32,13 @@
   },
   "damage_numbers": {
     "label": "Damage numbers",
-    "help": "Float your hits above enemies, colored by damage type. The game's own numbers over ordinary enemies stay hidden until a restart."
+    "help": "Float your hits above enemies, colored by damage type."
   },
-  "damage_mode": {
+  "damage_style": {
     "label": "Damage number style",
-    "help": "Combined: one number, its colors stacked by type from white (physical) at the bottom. Split: a number for each type, flying out one by one.",
+    "help": "Gradient: one number, the colors of its types stacked. Split: a number per type, flying out one by one.",
     "options": {
-      "combined": "Combined",
+      "gradient": "Gradient",
       "split": "Split"
     }
   },
@@ -68,8 +68,12 @@
     "help": "Move the game's boss bars down and add the boss's posture and effects under them. Needs a restart."
   },
   "enemy_hp_bar": {
-    "label": "Enemy health bars and damage",
-    "help": "Show the health bars and damage numbers the game floats above ordinary enemies; off hides them. Needs a restart."
+    "label": "Enemy health bars",
+    "help": "Show the health bars the game floats above ordinary enemies; off hides them and their damage numbers. Needs a restart."
+  },
+  "enemy_damage": {
+    "label": "Enemy damage numbers",
+    "help": "Show the damage numbers the game floats above ordinary enemies; off hides them (the mod's own are in Damage numbers). Needs a restart."
   },
   "rune_counter": {
     "label": "Rune counter at the top right",
