@@ -9,12 +9,11 @@ use fromsoftware_shared::FromStatic;
 use hudhook::imgui::{Context, FontId, FontSource, TextureId, Ui};
 use shared::memscan;
 
-use crate::damage_probe::{Event, position, state};
+use crate::damage_probe::{Event, state};
 use crate::{settings, target, text};
 
-/// Sizes as multiples of the `FontSize` setting: a critical hit or a burst, a DoT tick, the hit counter.
+/// Sizes as multiples of the `FontSize` setting: a critical hit or a burst, the hit counter.
 const CRIT_SIZE: f32 = 2.0;
-const DOT_SIZE: f32 = 0.5;
 const COMBO_SIZE: f32 = 0.4;
 /// A number falls this far (1080p pixels) over its life while it shrinks by this fraction.
 const FALL_PX: f32 = 85.0;
@@ -34,11 +33,7 @@ const POP_SCALE: f32 = 0.35;
 /// The font is rasterized once at this size, so the numbers stay sharp up to it.
 const FONT_PX: f32 = 96.0;
 /// A number is full size at this distance from the camera, smaller farther and larger nearer.
-const FULL_SIZE_METERS: f32 = 8.0;
-/// An enemy is followed for its poison and rot this long after a hit of yours; its ticks show at
-/// most this often, adding up in between.
-const DOT_TRACK: Duration = Duration::from_secs(30);
-const DOT_PERIOD: Duration = Duration::from_millis(600);
+const FULL_SIZE_METERS: f32 = 15.0;
 /// Hits on one target this close together grow one number (`DamageNumbers.Combo`).
 const MERGE_WINDOW: Duration = Duration::from_millis(1000);
 const BURST_WINDOW: Duration = Duration::from_millis(150);
@@ -62,9 +57,6 @@ enum Kind {
     Holy,
     Bleed,
     Frost,
-    Poison,
-    Rot,
-    BlackFlame,
 }
 
 impl Kind {
@@ -75,13 +67,13 @@ impl Kind {
 
 /// The damage after the reduction per type, those above zero. Physical is what the total keeps beyond
 /// the elements: it is off by a few points from the truncation of each value.
-fn parts(total: i32, elements: Option<[i32; 4]>, black_flame: bool) -> Option<Vec<(Kind, i32)>> {
+fn parts(total: i32, elements: Option<[i32; 4]>) -> Option<Vec<(Kind, i32)>> {
     let [fire, magic, lightning, holy] = elements?;
     let physical = total - fire - magic - lightning - holy;
     let all = [
         (Kind::Physical, physical),
         (Kind::Magic, magic),
-        (if black_flame { Kind::BlackFlame } else { Kind::Fire }, fire),
+        (Kind::Fire, fire),
         (Kind::Lightning, lightning),
         (Kind::Holy, holy),
     ];
@@ -174,10 +166,6 @@ impl Popup {
         matches!(self.kind, Kind::Bleed | Kind::Frost)
     }
 
-    fn dot(&self) -> bool {
-        matches!(self.kind, Kind::Poison | Kind::Rot)
-    }
-
     fn life(&self) -> f32 {
         settings::damage_duration() * if self.critical || self.burst() { CRIT_LIFE } else { 1.0 }
     }
@@ -217,15 +205,6 @@ struct Combo {
     hits: u32,
     merged: bool,
     from: f32,
-}
-
-/// An enemy hit by the player, followed for the HP that poison or scarlet rot takes from it.
-struct Dot {
-    handle: u64,
-    hp: i32,
-    hit_at: Instant,
-    shown_at: Instant,
-    loss: i64,
 }
 
 struct Pending {
@@ -291,8 +270,6 @@ pub(super) struct Tracker {
     popups: Vec<Popup>,
     pending: Vec<Pending>,
     combos: Vec<Combo>,
-    dots: Vec<Dot>,
-    dot_sequence: usize,
     last: Option<Instant>,
     player: usize,
 }
@@ -320,14 +297,12 @@ impl Tracker {
             self.popups.clear();
             self.pending.clear();
             self.combos.clear();
-            self.dots.clear();
         }
         if active && !changed {
             self.popups.retain(|p| p.at.elapsed().as_secs_f32() < p.lasts());
             for event in events {
                 self.hit(event);
             }
-            self.follow_dots(events);
             if dropped {
                 self.pending.clear();
             }
@@ -485,23 +460,8 @@ impl Tracker {
             return;
         }
         anchor[1] += 1.5;
-        match self.dots.iter_mut().find(|d| d.handle == handle) {
-            Some(dot) => dot.hit_at = event.at,
-            None => self.dots.push(Dot {
-                handle,
-                hp: event.after.hp.unwrap_or(0),
-                hit_at: event.at,
-                shown_at: event.at,
-                loss: 0,
-            }),
-        }
-        let hit_parts = parts(damage, event.elements, event.black_flame).unwrap_or_else(|| {
-            let kind = match element(event.components) {
-                Kind::Fire if event.black_flame => Kind::BlackFlame,
-                kind => kind,
-            };
-            vec![(kind, damage)]
-        });
+        let hit_parts = parts(damage, event.elements)
+            .unwrap_or_else(|| vec![(element(event.components), damage)]);
         let combo = self.combine(
             Combo {
                 handle,
@@ -538,81 +498,6 @@ impl Tracker {
         });
     }
 
-    /// The HP that poison or scarlet rot takes from the enemies hit lately becomes small numbers: the
-    /// loss of a frame with no hit on the enemy, while it has the status, adds up until the next one.
-    fn follow_dots(&mut self, events: &[Event]) {
-        if !settings::damage_dot() {
-            self.dots.clear();
-            return;
-        }
-        // SAFETY: singleton access fails while the world is unavailable.
-        let world = unsafe { WorldChrMan::instance() }.ok();
-        let hit = |handle: u64| {
-            events.iter().any(|e| {
-                e.target == Some(handle)
-                    && (e.damage.is_some_and(|n| n > 0)
-                        || e.before.hp.zip(e.after.hp).is_some_and(|(a, b)| a > b))
-            })
-        };
-        let mut ready = Vec::new();
-        self.dots.retain_mut(|dot| {
-            if dot.hit_at.elapsed() > DOT_TRACK {
-                return false;
-            }
-            let raw = dot.handle.to_ne_bytes();
-            let handle = memscan::read_safe::<FieldInsHandle>(raw.as_ptr() as usize);
-            let chr =
-                world.zip(handle).and_then(|(world, handle)| target::chr_by_handle(world, handle));
-            let Some(chr) = chr else { return false };
-            let address = std::ptr::from_ref(chr) as usize;
-            let Some(hp) = state(address).hp else { return false };
-            let lost = i64::from(dot.hp) - i64::from(hp);
-            dot.hp = hp;
-            // A hit, and the burst a hit can set off right after it, take their own HP.
-            if hit(dot.handle) || dot.hit_at.elapsed() < BURST_WINDOW {
-                return true;
-            }
-            let statuses = dot_statuses(chr);
-            let Some(&kind) = statuses.last() else {
-                dot.loss = 0;
-                return true;
-            };
-            dot.loss += lost.max(0);
-            if dot.loss > 0 && (hp <= 0 || dot.shown_at.elapsed() >= DOT_PERIOD) {
-                if let Some(mut anchor) = position(address) {
-                    anchor[1] += 1.0;
-                    ready.push((dot.handle, anchor, std::mem::take(&mut dot.loss), kind, statuses));
-                }
-                dot.shown_at = Instant::now();
-            }
-            hp > 0
-        });
-        for (handle, anchor, loss, kind, statuses) in ready {
-            self.dot_sequence = self.dot_sequence.wrapping_add(1);
-            self.push(Popup {
-                handle,
-                anchor,
-                label: loss.to_string(),
-                kind,
-                color: kind.color(),
-                // The loss of both statuses is one number: which part is whose is not known.
-                layers: if statuses.len() > 1 {
-                    statuses.iter().map(|k| (k.color(), 1.0 / statuses.len() as f32)).collect()
-                } else {
-                    Vec::new()
-                },
-                hits: 1,
-                merged: false,
-                from: 0.0,
-                fan: 0.0,
-                row: 0,
-                critical: false,
-                sequence: self.dot_sequence,
-                at: Instant::now(),
-            });
-        }
-    }
-
     fn follow(&mut self) {
         // SAFETY: singleton access fails while the world is unavailable.
         let world = unsafe { WorldChrMan::instance() }.ok();
@@ -625,7 +510,7 @@ impl Tracker {
             let Some(chr) = chr else { return false };
             // Poison and rot tick outside the intercepted hit. Reject them rather
             // than guessing how much of a coinciding HP delta belongs to the burst.
-            if !dot_statuses(chr).is_empty() {
+            if has_poison_or_rot(chr) {
                 return false;
             }
             let Some(hp) = state(std::ptr::from_ref(chr) as usize).hp else { return false };
@@ -651,24 +536,13 @@ impl Tracker {
     }
 }
 
-/// The statuses of `chr` that take HP from it over time, poison before scarlet rot, by the `stateInfo`
-/// of its effects (`docs/effects.md`).
-fn dot_statuses(chr: &ChrIns) -> Vec<Kind> {
-    let mut found = Vec::new();
-    for entry in chr.special_effect.entries() {
+/// Whether `chr` has poison or scarlet rot, told by the `stateInfo` of its effects (`docs/effects.md`).
+fn has_poison_or_rot(chr: &ChrIns) -> bool {
+    chr.special_effect.entries().any(|entry| {
         // SAFETY: the live effect entry owns this param row for this frame.
-        let Some(row) = entry.param_data.map(|row| unsafe { row.as_ref() }) else { continue };
-        let kind = match row.state_info() {
-            2 => Kind::Poison,
-            5 => Kind::Rot,
-            _ => continue,
-        };
-        if !found.contains(&kind) {
-            found.push(kind);
-        }
-    }
-    found.sort_by_key(|kind| *kind as u8);
-    found
+        let state = entry.param_data.map(|row| unsafe { row.as_ref() }.state_info());
+        matches!(state, Some(2 | 5))
+    })
 }
 
 /// The font handle is a raw pointer; it is made and used on the render thread only.
@@ -778,7 +652,7 @@ pub fn draw(
             continue;
         };
         // A burst of buildup stays readable from afar: it only grows when the target is near.
-        let near = (FULL_SIZE_METERS / depth).clamp(if popup.burst() { 1.0 } else { 0.5 }, 1.5);
+        let near = (FULL_SIZE_METERS / depth).clamp(if popup.burst() { 1.0 } else { 0.75 }, 1.5);
         let scale = scale * near;
         let side = if popup.fan == 0.0 {
             (popup.sequence.wrapping_add(usize::from(popup.burst())) % 5) as f32 - 2.0
@@ -790,14 +664,7 @@ pub fn draw(
         pos[1] += FALL_PX * t * t * scale;
         let unit =
             settings::damage_font_size() * scale * (1.0 - SHRINK * t) * (1.0 + POP_SCALE * pulse);
-        let em = unit
-            * if popup.critical || popup.burst() {
-                CRIT_SIZE
-            } else if popup.dot() {
-                DOT_SIZE
-            } else {
-                1.0
-            };
+        let em = unit * if popup.critical || popup.burst() { CRIT_SIZE } else { 1.0 };
         let marked = popup.critical || popup.burst();
         let label = popup.label;
         let size = text::measure(ui, &label, em);
@@ -978,12 +845,11 @@ mod tests {
 
     #[test]
     fn parts_give_physical_what_the_elements_leave_of_the_total() {
-        let parts = parts(126, Some([0, 0, 0, 51]), false).unwrap();
+        let parts = parts(126, Some([0, 0, 0, 51])).unwrap();
         assert_eq!(parts, [(Kind::Physical, 75), (Kind::Holy, 51)]);
-        assert_eq!(super::parts(40, Some([0, 40, 0, 0]), false).unwrap(), [(Kind::Magic, 40)]);
-        assert!(super::parts(0, Some([0; 4]), false).is_none());
-        assert!(super::parts(40, None, false).is_none());
-        assert_eq!(super::parts(30, Some([30, 0, 0, 0]), true).unwrap(), [(Kind::BlackFlame, 30)]);
+        assert_eq!(super::parts(40, Some([0, 40, 0, 0])).unwrap(), [(Kind::Magic, 40)]);
+        assert!(super::parts(0, Some([0; 4])).is_none());
+        assert!(super::parts(40, None).is_none());
     }
 
     #[test]

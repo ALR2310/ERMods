@@ -67,32 +67,10 @@ The summing follows the style: `Split` grows each type's number, `Gradient` the 
 
 ## Colors
 
-`[DamageNumbers.Colors]` holds one `#RRGGBB` per kind (physical, the four elements, bleed, frost, poison, rot, Black Flame), read into
+`[DamageNumbers.Colors]` holds one `#RRGGBB` per kind (physical, the four elements, bleed, frost), read into
 atomics by `settings::load` so a config reload applies them. The defaults live only in the template; a value that is not
 six hex digits is logged and replaced by the template's. The gradient, the CRIT mark and the combo counter take their color from
 these, so they follow too.
-
-## Black Flame
-
-**Confirmed on 2.7.2.0 for Scouring Black Flame, inferred for the other sources** (`Logging.DamageProbe` records of
-Scouring Black Flame against a lava spell). The game has no flag for Black Flame damage; this is a rule from the effect. The damage of
-Black Flame is ordinary fire in the hit record: components `[0, 0, 490.8, 0, 0]` and results `[319, 0, 0, 0]`. What
-sets it apart is the effect the attack puts on the target: the record holds the effect ids of the attack (`-1` for
-none) from `+0x68`, and for Scouring Black Flame `+0x74` was `0x18C3D8` = 1623000, `[Incantation] Scouring Black
-Flame (DoT Black)`; the target had that effect for the next two seconds, and a lava spell had neither. The mod reads
-eight slots from `+0x68` and takes the fire part of the hit as Black Flame when one of the ids is in the list of
-`SpEffectParam` rows named "DoT Black" (835, 29000, 1621000, 1623000, 1624010, 1625000, 1626001; only 1623000 was
-seen in game, the others come from the row names, and a mod that adds its own Black Flame rows needs them added).
-An attack of that kind with no effect in the record shows as plain fire.
-
-## Poison and scarlet rot ticks
-
-**Seen in game with poison and scarlet rot.** Poison and rot take HP outside the hit call. An enemy you hit is followed for
-30 s after the hit; each frame its HP is read, and while it has an effect with `stateInfo` 2 (poison) or 5 (scarlet
-rot) the HP lost in a frame with no hit on it is added up and shown every 0.6 s as a small green or red number (the
-`DoT` key, damage over time). Frames with a hit, and the 150 ms after one of your hits (a burst can follow), are skipped. The source of
-the status is not known, so ticks of a status someone else put on an enemy you hit show too. When an enemy has both statuses the loss is one number in
-two colors (green below, red above): the HP lost in a frame cannot be told apart by status.
 
 ## Bleed and frost bursts
 
@@ -104,9 +82,9 @@ by that margin are missed on purpose rather than guessed.
 
 ## Drawing
 
-Size is `FontSize` (42 px at 1080p) times `Scale`; CRIT and bursts are twice that, poison and rot ticks half, the hit counter 0.4, in Impact (loaded from the Windows fonts folder,
-the default font when it is absent), and grows or shrinks with the distance from the camera, full size at 8 m,
-between half and one and a half times (a burst never gets smaller than full size). Each number shrinks to 40% while it falls and fades out; a CRIT or a burst stays twice as long.
+Size is `FontSize` (42 px at 1080p) times `Scale`; CRIT and bursts are twice that, the hit counter 0.4, in Impact (loaded from the Windows fonts folder,
+the default font when it is absent), and grows or shrinks with the distance from the camera, full size at 15 m,
+between three quarters and one and a half times (a burst never gets smaller than full size). Each number shrinks to 40% while it falls and fades out; a CRIT or a burst stays twice as long.
 
 The frame task owns popup lifetimes and hands copied data (popups, camera) to the render thread, which never
 touches a character pointer. The anchor stays in the world and is projected each frame with `CSCamera.pers_cam_1`

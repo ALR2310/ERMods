@@ -17,11 +17,6 @@ use crate::settings;
 const CALL_AOB: &str = "4D 8B C6 49 8B D4 44 88 6C 24 20 48 8B CD E8 ?? ?? ?? ?? 44 0F B6 A4 24 A8 00 00 00 4D 8B C6 45 0F B6 CC";
 const CALL_AT: usize = 14;
 const LIMIT: usize = 512;
-/// The `SpEffectParam` rows of the Black Flame (their names end with "DoT Black", `docs/damage_numbers.md`):
-/// the tornado, the NPCs', Black Flame, Scouring, Noble Presence, the Ritual and the Blade.
-const BLACK_FLAME: [i32; 7] = [835, 29000, 1621000, 1623000, 1624010, 1625000, 1626001];
-/// Where the hit record keeps the effects the attack puts on its target (`-1` for none), from +0x68.
-const ATTACK_EFFECTS: usize = 0x68;
 const FOLLOW_FRAMES: u32 = 120;
 const FOLLOW_TIME: Duration = Duration::from_secs(2);
 
@@ -55,8 +50,6 @@ pub(super) struct Event {
     /// Fire, magic, lightning and holy after the reduction, truncated.
     pub elements: Option<[i32; 4]>,
     pub hit_kind: Option<u8>,
-    /// The attack puts a Black Flame effect on its target: fire damage of another kind.
-    pub black_flame: bool,
     /// The first 0x280 bytes of the hit record, copied only for the damage probe.
     raw: Option<[u32; 160]>,
     pub before: State,
@@ -81,7 +74,6 @@ impl Event {
             components: Some([151.0, 0.0, 0.0, 0.0, 155.0]),
             elements: None,
             hit_kind: Some(2),
-            black_flame: false,
             raw: None,
             before: State { hp: Some(219), resist: None },
             after: State { hp: Some(0), resist: None },
@@ -156,8 +148,6 @@ unsafe extern "C" fn observe(ctx: usize, attacker: usize, info: usize, arg4: u64
     let components = memscan::read_safe::<[f32; 5]>(info);
     let elements = memscan::read_safe::<[i32; 4]>(info.wrapping_add(0x234));
     let hit_kind = memscan::read_safe::<u8>(info.wrapping_add(0xD9));
-    let black_flame = memscan::read_safe::<[i32; 8]>(info.wrapping_add(ATTACK_EFFECTS))
-        .is_some_and(|slots| slots.iter().any(|id| BLACK_FLAME.contains(id)));
     let raw = settings::damage_probe().then(|| memscan::read_safe::<[u32; 160]>(info)).flatten();
     let attacker_handle = memscan::read_safe::<u64>(attacker.wrapping_add(8));
     let target_handle = target.and_then(|p| memscan::read_safe::<u64>(p.wrapping_add(8)));
@@ -176,7 +166,6 @@ unsafe extern "C" fn observe(ctx: usize, attacker: usize, info: usize, arg4: u64
         components,
         elements,
         hit_kind,
-        black_flame,
         raw,
         before,
         after: target.map(state).unwrap_or(State { hp: None, resist: None }),
