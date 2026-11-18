@@ -61,6 +61,8 @@ Resizable = true
 # aspect ratio below. With both set, the size is also added to the game's
 # resolution list (restart needed), so the game renders at it; the list only
 # has 16:9 sizes, so this is how to get 21:9 or 32:9.
+# 320 x 180
+# 480 x 270
 Width = 0
 Height = 0
 
