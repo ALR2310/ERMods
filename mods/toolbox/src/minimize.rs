@@ -2,8 +2,8 @@
 //! does not jump in front of the window the player is working in; Alt-Tab or its taskbar icon
 //! brings it back. The game restores its window when it switches the window mode (about 15 s
 //! after the mods load), so for the first `WATCH` the window is minimized again each time it
-//! comes back by itself. Restored by the player within `REPEAT` of our minimizing means they want
-//! the game: stop for this run.
+//! comes back by itself, sometimes twice within a moment (`BURST`). Restored by the player within
+//! `REPEAT` of our minimizing, but not that fast, means they want the game: stop for this run.
 
 use std::ffi::c_void;
 use std::time::{Duration, Instant};
@@ -26,7 +26,10 @@ const SW_SHOWMINNOACTIVE: i32 = 7;
 
 /// How long after the mod loads the game is kept minimized.
 const WATCH: Duration = Duration::from_secs(90);
-/// Restored this soon after we minimized it means the player asked for it.
+/// Restored this soon after we minimized it is still the game switching its window mode, not the
+/// player.
+const BURST: Duration = Duration::from_secs(1);
+/// Restored this soon after, but later than `BURST`, means the player asked for it.
 const REPEAT: Duration = Duration::from_secs(5);
 
 #[derive(Debug, PartialEq)]
@@ -43,7 +46,7 @@ fn verdict(in_watch: bool, gave_up: bool, since_minimized: Option<Duration>) -> 
         return Verdict::Leave;
     }
     match since_minimized {
-        Some(elapsed) if elapsed < REPEAT => Verdict::GiveUp,
+        Some(elapsed) if (BURST..REPEAT).contains(&elapsed) => Verdict::GiveUp,
         _ => Verdict::Minimize,
     }
 }
@@ -101,6 +104,8 @@ mod tests {
     #[test]
     fn restoring_it_at_once_is_the_player_asking_for_it() {
         assert_eq!(verdict(true, false, Some(Duration::from_secs(2))), Verdict::GiveUp);
+        // The game's own second restore of the switch comes at once and is minimized again.
+        assert_eq!(verdict(true, false, Some(Duration::from_millis(200))), Verdict::Minimize);
         // The window-mode switch comes back much later and is minimized again.
         assert_eq!(verdict(true, false, Some(Duration::from_secs(14))), Verdict::Minimize);
         assert_eq!(verdict(true, true, None), Verdict::Leave);
