@@ -1,11 +1,12 @@
 # Floating damage numbers
 
 Status: **Confirmed on 2.7.2.0** for physical and magic hits and CRIT (screenshots against HP loss). Fire,
-lightning, holy and the bleed/frost bursts follow the same code path but were only checked in the log, not by eye.
+lightning, holy and the numbers of the effects (poison, scarlet rot, the bleed and frost bursts) follow the same
+code paths but were only checked in the log, not by eye.
 Conventions: [research notes](../../../docs/research/README.md).
 
-Your own hits float above the enemy as numbers colored by damage type, then fall and fade
-(`[DamageNumbers]` in `JourneyHUD.toml`).
+Your own hits, and the poison, scarlet rot, bleed and frost damage you do, float above the enemy as numbers
+colored by damage type, then fall and fade (`[DamageNumbers]` in `JourneyHUD.toml`).
 
 ## Where the numbers come from
 
@@ -20,8 +21,6 @@ from another mod still chains. Nothing else runs in the hook; the frame task dra
 | Damage | `hit_info + 0x228` (i32) | the number; it keeps overkill (574 shown on a 219 HP target) |
 | Components | `hit_info + 0x00`, five floats: physical, magic, fire, lightning, holy | color: the largest element input, physical only when none is present |
 | Critical | `hit_info + 0xD9 == 2` | a splash mark at the left of the number in its color (backstab, riposte), size x2, twice as long |
-| HP | `chr + 0x190 -> [0] + 0x138` | HP before and after the call |
-| Remaining buildup | `chr + 0x190 -> [+0x20] + 0x10`, seven ints | index 2 = bleed, 4 = frost |
 | Position | `chr_ctrl.physics_model_matrix` row 3 | anchor, raised 1.5 m |
 
 Only hits whose attacker is the local player create a number. Summons, other players and projectiles whose
@@ -67,22 +66,42 @@ The summing follows the style: `Split` grows each type's number, `Gradient` the 
 
 ## Colors
 
-`[DamageNumbers.Colors]` holds one `#RRGGBB` per kind (physical, the four elements, bleed, frost), read into
+`[DamageNumbers.Colors]` holds one `#RRGGBB` per kind (physical, the four elements, bleed, frost, poison, rot), read into
 atomics by `settings::load` so a config reload applies them. The defaults live only in the template; a value that is not
 six hex digits is logged and replaced by the template's. The gradient, the CRIT mark and the combo counter take their color from
 these, so they follow too.
 
-## Bleed and frost bursts
+## Effects: poison, scarlet rot, bleed and frost
 
-**Inferred.** A proc does not go through the hit call. When one hit resets the target's bleed or frost buildup by
-more than half its new value, the HP lost in the next 150 ms beyond the hit's own damage becomes a red or cyan
-number. Discarded when: another positive hit lands on that target, the target has poison or rot (`stateInfo` 2 or
-5), both buildups reset at once, the ring overflowed, or the target is gone. Procs that do not reset the buildup
-by that margin are missed on purpose rather than guessed.
+**Confirmed on 2.7.2.0 and on Convergence (log of `Logging.DamageProbe`, poison, rot, bleed and frost seen).** HP that
+effects take does not pass through the hit call. The game adds it up once per frame and character in one function
+(`sub_1404F8BB0`, called from `sub_1404413B0`, `effect_damage.rs`): from the effects on the character it gives the
+HP change of the frame, the handle the loss is credited to, and the `spAttribute` of the effect behind it. The one
+call of it is found by AOB (`CALL_AOB`, unique on 2.6.2.0 to 2.7.2.0), redirected like the hit call, and the result
+is copied into a ring (character, credited handle, kind, change).
+
+| Kind (`spAttribute`) | Effect | Shown as |
+|---|---|---|
+| 20 | poison | small number (`DoT`), at each tick, about once a second (343 on a 481 195 HP enemy) |
+| 21 | scarlet rot | the same (599 on a 324 996 HP enemy) |
+| 22 | blood loss | a big number, once (50 595: the burst) |
+| 23 | frostbite | a big number, once (33 704: the burst) |
+
+A number is shown when the loss is negative, the credited handle is the player's (the same value as the `attacker` of
+the player's hits) and the character is not the player. What the game credits to someone else or to nobody
+is left out. The value is what the game took, with no HP read and no timing rule, so a hit in the same frame, a
+second hit within 150 ms or poison on the target no longer change it. Each tick is its own number: there is no
+fixed timer, a number shows when the game computes the tick.
+
+Not shown yet: burns (Black Flame, Destined Death, Soul Burn: kind `-2`, credited to the player; they tick ten
+times a second and the effects on the target tell them apart), and the procs of death blight and madness (kind
+`-2`, credited to nobody, a loss right after the buildup is reset by a hit of the player). Sleep takes no HP.
+When two effects tick in one frame the game adds them and `kind` is the one of the larger, so the number is the
+sum in the color of that effect.
 
 ## Drawing
 
-Size is `FontSize` (42 px at 1080p) times `Scale`; CRIT and bursts are twice that, the hit counter 0.4, in Impact (loaded from the Windows fonts folder,
+Size is `FontSize` (42 px at 1080p) times `Scale`; CRIT and bursts are twice that, DoT ticks half, the hit counter 0.4, in Impact (loaded from the Windows fonts folder,
 the default font when it is absent), and grows or shrinks with the distance from the camera, full size at 15 m,
 between three quarters and one and a half times (a burst never gets smaller than full size). Each number shrinks to 40% while it falls and fades out; a CRIT or a burst stays twice as long.
 
@@ -103,13 +122,16 @@ black outline, tinted with the number's color; not taken from the game).
 
 - The anchor is the target's position before the hit, not the impact point; fast targets can look off.
 - Numbers from rapid hits can overlap, more so with a long `Duration`.
-- Not tested: fire, lightning and holy numbers by eye, lethal CRIT, bleed/frost with and without poison, AutoRegen
-  loaded together, ultrawide.
-- `CALL_AOB` and the hit record offsets were only checked on 2.7.2.0. When the pattern is missing the capture stays
-  off and the log says so.
+- Not tested: the effect numbers by eye, fire, lightning and holy numbers by eye, lethal CRIT, AutoRegen loaded
+  together, ultrawide.
+- `CALL_AOB`, the effect call pattern and the hit record offsets were only checked on 2.7.2.0 (the two patterns are
+  unique on 2.6.2.0 to 2.7.2.0). When one is missing that capture stays off and the log says so.
 - Another mod that rewrites the same call site would be chained by its own detour, not by this one.
 
 ## Diagnostics
 
 `Logging.DamageProbe` logs every hit (`Damage probe:`), the popup it made (`Damage popup:`) and the HP change of
-the target for two seconds after it, which is how the burst rule above was found.
+the target for two seconds after it. It also logs each effect result (`HP effects:`: the change, the max HP, the
+handle it is credited to, the kind) and each HP the game sets on a character (`HP write:`), with the calls on the
+stack that led to it (`hp_probe.rs`, `sub_1404374E0`): a hit comes through `436BF9`, the effects through `4415B3`
+(RVAs on 2.7.2.0). The probe is off by default and writes a lot at an area load.

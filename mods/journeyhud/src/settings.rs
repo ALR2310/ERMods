@@ -123,7 +123,8 @@ static DAMAGE_PROBE: AtomicBool = AtomicBool::new(false);
 static STATE_CHANGES: AtomicBool = AtomicBool::new(false);
 static DAMAGE_NUMBERS: AtomicBool = AtomicBool::new(false);
 static DAMAGE_COMBO: AtomicBool = AtomicBool::new(false);
-static DAMAGE_COLORS: [AtomicU32; 7] = [const { AtomicU32::new(0xFF_FFFF) }; 7];
+static DAMAGE_DOT: AtomicBool = AtomicBool::new(false);
+static DAMAGE_COLORS: [AtomicU32; 9] = [const { AtomicU32::new(0xFF_FFFF) }; 9];
 static DAMAGE_STYLE: AtomicU8 = AtomicU8::new(DamageStyle::Gradient as u8);
 static DAMAGE_FONT_SIZE: AtomicU32 = AtomicU32::new(42.0f32.to_bits());
 static DAMAGE_SCALE: AtomicU32 = AtomicU32::new(1.0f32.to_bits());
@@ -133,6 +134,7 @@ static DAMAGE_DURATION: AtomicU32 = AtomicU32::new(1.2f32.to_bits());
 pub fn load(config: &Config) {
     set_damage_numbers(config.damage_numbers.enabled as u8);
     DAMAGE_COMBO.store(config.damage_numbers.combo, Ordering::Relaxed);
+    DAMAGE_DOT.store(config.damage_numbers.dot, Ordering::Relaxed);
     DAMAGE_STYLE.store(DamageStyle::parse(&config.damage_numbers.style) as u8, Ordering::Relaxed);
     let template = crate::config::template().damage_numbers.colors;
     for ((slot, value), default) in
@@ -558,6 +560,10 @@ pub fn set_effects_target(value: u8) {
 
 pub fn set_damage_numbers(value: u8) {
     DAMAGE_NUMBERS.store(value != 0, Ordering::Relaxed);
+}
+
+pub fn damage_dot() -> bool {
+    DAMAGE_DOT.load(Ordering::Relaxed)
 }
 
 pub fn damage_combo() -> bool {

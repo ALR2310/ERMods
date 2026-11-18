@@ -4,16 +4,18 @@ use std::sync::Mutex;
 use std::sync::atomic::{AtomicU32, Ordering};
 use std::time::{Duration, Instant};
 
-use eldenring::cs::{CSCam, CSCamera, CSMenuManImp, ChrIns, FieldInsHandle, WorldChrMan};
+use eldenring::cs::{CSCam, CSCamera, CSMenuManImp, FieldInsHandle, WorldChrMan};
 use fromsoftware_shared::FromStatic;
 use hudhook::imgui::{Context, FontId, FontSource, TextureId, Ui};
 use shared::memscan;
 
-use crate::damage_probe::{Event, state};
+use crate::damage_probe::{Event, position};
+use crate::effect_damage::EffectTick;
 use crate::{settings, target, text};
 
-/// Sizes as multiples of the `FontSize` setting: a critical hit or a burst, the hit counter.
+/// Sizes as multiples of the `FontSize` setting: a critical hit or a burst, a DoT tick, the hit counter.
 const CRIT_SIZE: f32 = 2.0;
+const DOT_SIZE: f32 = 0.5;
 const COMBO_SIZE: f32 = 0.4;
 /// A number falls this far (1080p pixels) over its life while it shrinks by this fraction.
 const FALL_PX: f32 = 85.0;
@@ -36,10 +38,8 @@ const FONT_PX: f32 = 96.0;
 const FULL_SIZE_METERS: f32 = 15.0;
 /// Hits on one target this close together grow one number (`DamageNumbers.Combo`).
 const MERGE_WINDOW: Duration = Duration::from_millis(1000);
-const BURST_WINDOW: Duration = Duration::from_millis(150);
 const STALE: Duration = Duration::from_millis(500);
 const MAX_POPUPS: usize = 96;
-const MAX_PENDING: usize = 32;
 const _: () = assert!(std::mem::size_of::<FieldInsHandle>() == 8);
 
 /// Where the digits of the font start and end under the top of the line, as a fraction of its size.
@@ -57,6 +57,8 @@ enum Kind {
     Holy,
     Bleed,
     Frost,
+    Poison,
+    Rot,
 }
 
 impl Kind {
@@ -118,21 +120,6 @@ fn element(components: Option<[f32; 5]>) -> Kind {
     kind
 }
 
-// A large reset within the hit is distinct from the gradual recovery between hits.
-fn burst(before: Option<[i32; 7]>, after: Option<[i32; 7]>) -> Option<Kind> {
-    let (before, after) = before.zip(after)?;
-    let reset = |i: usize| {
-        before[i] >= 0
-            && after[i] > 0
-            && i64::from(after[i]) - i64::from(before[i]) > i64::from(after[i]) / 2
-    };
-    match (reset(2), reset(4)) {
-        (true, false) => Some(Kind::Bleed),
-        (false, true) => Some(Kind::Frost),
-        _ => None,
-    }
-}
-
 #[derive(Clone)]
 struct Popup {
     handle: u64,
@@ -164,6 +151,10 @@ impl Popup {
 
     fn burst(&self) -> bool {
         matches!(self.kind, Kind::Bleed | Kind::Frost)
+    }
+
+    fn dot(&self) -> bool {
+        matches!(self.kind, Kind::Poison | Kind::Rot)
     }
 
     fn life(&self) -> f32 {
@@ -205,12 +196,6 @@ struct Combo {
     hits: u32,
     merged: bool,
     from: f32,
-}
-
-struct Pending {
-    popup: Popup,
-    hp: i32,
-    loss: i64,
 }
 
 #[derive(Clone, Copy)]
@@ -268,14 +253,14 @@ struct Snapshot {
 #[derive(Default)]
 pub(super) struct Tracker {
     popups: Vec<Popup>,
-    pending: Vec<Pending>,
     combos: Vec<Combo>,
+    effects: usize,
     last: Option<Instant>,
     player: usize,
 }
 
 impl Tracker {
-    pub fn update(&mut self, events: &[Event], dropped: bool) {
+    pub fn update(&mut self, events: &[Event], ticks: &[EffectTick]) {
         let now = Instant::now();
         let player = shared::player::main_player_chr_ins_ptr().map_or(0, |p| p as usize);
         // SAFETY: singleton access fails while the menu manager is absent.
@@ -295,7 +280,6 @@ impl Tracker {
         self.player = player;
         if !active || changed {
             self.popups.clear();
-            self.pending.clear();
             self.combos.clear();
         }
         if active && !changed {
@@ -303,10 +287,10 @@ impl Tracker {
             for event in events {
                 self.hit(event);
             }
-            if dropped {
-                self.pending.clear();
+            let player_handle = memscan::read_safe::<u64>(player.wrapping_add(8));
+            for tick in ticks {
+                self.effect(tick, player_handle);
             }
-            self.follow();
         }
         if let Ok(mut guard) = LATEST.lock() {
             *guard = camera.filter(|_| active).map(|camera| Snapshot {
@@ -392,8 +376,8 @@ impl Tracker {
         combo
     }
 
-    /// Puts the numbers of `combo` on screen, and returns the plain one the bursts are based on.
-    fn show(&mut self, combo: &Combo, anchor: [f32; 3]) -> Popup {
+    /// Puts the numbers of `combo` on screen.
+    fn show(&mut self, combo: &Combo, anchor: [f32; 3]) {
         let kind = combo.parts.iter().max_by_key(|p| p.1).map_or(Kind::Physical, |p| p.0);
         let popup = Popup {
             handle: combo.handle,
@@ -437,18 +421,10 @@ impl Tracker {
                 self.push(Popup { layers, ..popup.clone() });
             }
         }
-        popup
     }
 
     fn hit_with(&mut self, event: &Event, merge: bool) {
         let Some(handle) = event.target else { return };
-        // Any subsequent positive hit makes attribution ambiguous, including another
-        // player's hit. Zero-damage parries and background events do not erase a proc.
-        if event.damage.is_some_and(|n| n > 0)
-            || event.before.hp.zip(event.after.hp).is_some_and(|(before, after)| before > after)
-        {
-            self.pending.retain(|p| p.popup.handle != handle);
-        }
         if !event.own {
             return;
         }
@@ -476,73 +452,62 @@ impl Tracker {
             },
             merge,
         );
-        let popup = self.show(&combo, anchor);
-        let Some(kind) = burst(event.before.resist, event.after.resist) else { return };
-        let (Some(before), Some(after)) = (event.before.hp, event.after.hp) else { return };
-        if self.pending.len() == MAX_PENDING {
-            self.pending.remove(0);
-        }
-        self.pending.push(Pending {
-            popup: Popup {
-                kind,
-                color: kind.color(),
-                layers: Vec::new(),
-                hits: 1,
-                merged: false,
-                from: 0.0,
-                critical: false,
-                ..popup
-            },
-            hp: after,
-            loss: (i64::from(before) - i64::from(after) - i64::from(damage)).max(0),
-        });
+        self.show(&combo, anchor);
     }
 
-    fn follow(&mut self) {
-        // SAFETY: singleton access fails while the world is unavailable.
-        let world = unsafe { WorldChrMan::instance() }.ok();
-        let mut ready = Vec::new();
-        self.pending.retain_mut(|pending| {
-            let raw = pending.popup.handle.to_ne_bytes();
-            let handle = memscan::read_safe::<FieldInsHandle>(raw.as_ptr() as usize);
-            let chr =
-                world.zip(handle).and_then(|(world, handle)| target::chr_by_handle(world, handle));
-            let Some(chr) = chr else { return false };
-            // Poison and rot tick outside the intercepted hit. Reject them rather
-            // than guessing how much of a coinciding HP delta belongs to the burst.
-            if has_poison_or_rot(chr) {
-                return false;
-            }
-            let Some(hp) = state(std::ptr::from_ref(chr) as usize).hp else { return false };
-            if hp > pending.hp {
-                return false;
-            }
-            pending.loss += i64::from(pending.hp) - i64::from(hp);
-            pending.hp = hp;
-            if pending.popup.at.elapsed() < BURST_WINDOW && hp > 0 {
-                return true;
-            }
-            if pending.loss > 0 {
-                let mut popup = pending.popup.clone();
-                popup.label = pending.loss.to_string();
-                popup.at = Instant::now();
-                ready.push(popup);
-            }
-            false
-        });
-        for popup in ready {
-            self.push(popup);
+    /// A tick of an effect of yours on an enemy: poison and scarlet rot as small numbers, the bursts
+    /// of bleed and frost as big ones. What the game credits to someone else, or to nobody, is not shown.
+    fn effect(&mut self, tick: &EffectTick, player: Option<u64>) {
+        let Some(handle) = tick.handle else { return };
+        let kind = match tick.kind {
+            20 if settings::damage_dot() => Kind::Poison,
+            21 if settings::damage_dot() => Kind::Rot,
+            22 => Kind::Bleed,
+            23 => Kind::Frost,
+            _ => return,
+        };
+        if tick.changes[0] >= 0 || player != Some(tick.causer as u64) || Some(handle) == player {
+            return;
         }
+        if tick.at.elapsed() > STALE {
+            return;
+        }
+        let height = if kind == Kind::Poison || kind == Kind::Rot { 1.0 } else { 1.5 };
+        let Some(mut anchor) = enemy_position(handle) else { return };
+        anchor[1] += height;
+        self.show_effect(handle, kind, tick.changes[0].unsigned_abs(), anchor);
+    }
+
+    fn show_effect(&mut self, handle: u64, kind: Kind, loss: u32, anchor: [f32; 3]) {
+        self.effects += 1;
+        self.push(Popup {
+            handle,
+            anchor,
+            label: loss.to_string(),
+            kind,
+            color: kind.color(),
+            layers: Vec::new(),
+            hits: 1,
+            merged: false,
+            from: 0.0,
+            fan: 0.0,
+            row: 0,
+            critical: false,
+            // Apart from the sequences of the hits, which count up from 0.
+            sequence: usize::MAX - self.effects,
+            at: Instant::now(),
+        });
     }
 }
 
-/// Whether `chr` has poison or scarlet rot, told by the `stateInfo` of its effects (`docs/effects.md`).
-fn has_poison_or_rot(chr: &ChrIns) -> bool {
-    chr.special_effect.entries().any(|entry| {
-        // SAFETY: the live effect entry owns this param row for this frame.
-        let state = entry.param_data.map(|row| unsafe { row.as_ref() }.state_info());
-        matches!(state, Some(2 | 5))
-    })
+/// Where the character with this handle stands, `None` when it is gone.
+fn enemy_position(handle: u64) -> Option<[f32; 3]> {
+    // SAFETY: singleton access fails while the world is unavailable.
+    let world = unsafe { WorldChrMan::instance() }.ok()?;
+    let raw = handle.to_ne_bytes();
+    let handle = memscan::read_safe::<FieldInsHandle>(raw.as_ptr() as usize)?;
+    let chr = target::chr_by_handle(world, handle)?;
+    position(std::ptr::from_ref(chr) as usize)
 }
 
 /// The font handle is a raw pointer; it is made and used on the render thread only.
@@ -664,7 +629,14 @@ pub fn draw(
         pos[1] += FALL_PX * t * t * scale;
         let unit =
             settings::damage_font_size() * scale * (1.0 - SHRINK * t) * (1.0 + POP_SCALE * pulse);
-        let em = unit * if popup.critical || popup.burst() { CRIT_SIZE } else { 1.0 };
+        let em = unit
+            * if popup.critical || popup.burst() {
+                CRIT_SIZE
+            } else if popup.dot() {
+                DOT_SIZE
+            } else {
+                1.0
+            };
         let marked = popup.critical || popup.burst();
         let label = popup.label;
         let size = text::measure(ui, &label, em);
@@ -757,25 +729,45 @@ mod tests {
         assert_eq!(popup.anchor, [0.0, 1.5, 10.0]);
     }
 
+    fn tick(kind: i8, loss: i32, causer: i64) -> EffectTick {
+        EffectTick {
+            at: Instant::now(),
+            owner: 1,
+            handle: Some(7),
+            max: 1000,
+            causer,
+            kind,
+            changes: [-loss, 0, 0],
+        }
+    }
+
     #[test]
-    fn zero_damage_does_not_cancel_a_burst_but_another_attacker_does() {
+    fn the_effects_of_the_player_show_by_kind() {
         let mut tracker = Tracker::default();
-        let mut event = Event::test_hit();
-        event.before.resist = Some([51; 7]);
-        let mut resist = [51; 7];
-        resist[2] = 424;
-        event.after.resist = Some(resist);
-        tracker.hit(&event);
-        assert_eq!(tracker.pending.len(), 1);
-        event.damage = Some(0);
-        event.before.hp = event.after.hp;
-        event.own = false;
-        tracker.hit(&event);
-        assert_eq!(tracker.pending.len(), 1);
-        event.damage = Some(50);
-        tracker.hit(&event);
-        assert!(tracker.pending.is_empty());
-        assert_eq!(tracker.popups.len(), 1);
+        tracker.show_effect(7, Kind::Poison, 343, [0.0; 3]);
+        tracker.show_effect(7, Kind::Bleed, 50595, [0.0; 3]);
+        assert_eq!(tracker.popups.len(), 2);
+        assert_eq!(tracker.popups[0].label, "343");
+        assert!(tracker.popups[0].dot() && !tracker.popups[0].burst());
+        assert_eq!(tracker.popups[1].label, "50595");
+        assert!(tracker.popups[1].burst() && !tracker.popups[1].dot());
+        assert_ne!(tracker.popups[0].sequence, tracker.popups[1].sequence);
+    }
+
+    #[test]
+    fn the_effects_of_others_and_heals_are_left_out() {
+        let mut tracker = Tracker::default();
+        let player = Some(9);
+        tracker.effect(&tick(20, 343, 5), player);
+        tracker.effect(&tick(20, 343, -1), player);
+        tracker.effect(&tick(-2, 482, 9), player);
+        let mut heal = tick(20, 343, 9);
+        heal.changes[0] = 343;
+        tracker.effect(&heal, player);
+        let mut own = tick(20, 343, 9);
+        own.handle = player;
+        tracker.effect(&own, player);
+        assert!(tracker.popups.is_empty());
     }
 
     #[test]
@@ -865,21 +857,5 @@ mod tests {
         assert_eq!(layer_color(&layers, 1.0), [1.0, 0.0, 0.0]);
         let between = layer_color(&layers, 0.5);
         assert!(between[0] > 0.0 && between[0] < 1.0);
-    }
-
-    #[test]
-    fn burst_requires_one_large_reset_in_the_same_hit() {
-        let mut before = [100; 7];
-        let mut after = before;
-        after[2] = 101;
-        assert_eq!(burst(Some(before), Some(after)), None);
-        before[2] = 51;
-        after[2] = 424;
-        assert_eq!(burst(Some(before), Some(after)), Some(Kind::Bleed));
-        before[4] = 44;
-        after[4] = 833;
-        assert_eq!(burst(Some(before), Some(after)), None);
-        after[2] = 50;
-        assert_eq!(burst(Some(before), Some(after)), Some(Kind::Frost));
     }
 }

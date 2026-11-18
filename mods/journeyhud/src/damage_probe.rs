@@ -11,7 +11,7 @@ use fromsoftware_shared::FromStatic;
 
 use shared::{codepatch, logger, memscan};
 
-use crate::settings;
+use crate::{effect_damage, hp_probe, settings};
 
 // The call into AutoRegen's observed function, without patching its prologue.
 const CALL_AOB: &str = "4D 8B C6 49 8B D4 44 88 6C 24 20 48 8B CD E8 ?? ?? ?? ?? 44 0F B6 A4 24 A8 00 00 00 4D 8B C6 45 0F B6 CC";
@@ -181,6 +181,10 @@ unsafe extern "C" fn observe(ctx: usize, attacker: usize, info: usize, arg4: u64
 pub struct Probe {
     attempted: bool,
     installed: bool,
+    hp_attempted: bool,
+    hp_installed: bool,
+    effects_attempted: bool,
+    effects_installed: bool,
     watches: Vec<Watch>,
     numbers: crate::damage_numbers::Tracker,
 }
@@ -200,8 +204,15 @@ impl Probe {
     pub fn tick(&mut self) {
         let diagnostic = settings::damage_probe();
         let enabled = diagnostic || settings::damage_numbers();
+        if !diagnostic {
+            hp_probe::set_active(false);
+        }
+        if !enabled {
+            effect_damage::set_active(false);
+        }
         if !enabled && !self.installed {
             self.attempted = false;
+            self.effects_attempted = self.effects_installed;
             return;
         }
         PLAYER.store(
@@ -211,6 +222,28 @@ impl Probe {
         if enabled && !self.installed && !self.attempted && PLAYER.load(Ordering::Relaxed) != 0 {
             self.attempted = true;
             self.installed = install();
+        }
+        if diagnostic && !self.hp_attempted && PLAYER.load(Ordering::Relaxed) != 0 {
+            self.hp_attempted = true;
+            self.hp_installed = hp_probe::install();
+        }
+        hp_probe::set_active(diagnostic && self.hp_installed);
+        if enabled && !self.effects_attempted && PLAYER.load(Ordering::Relaxed) != 0 {
+            self.effects_attempted = true;
+            self.effects_installed = effect_damage::install();
+        }
+        effect_damage::set_active(enabled && self.effects_installed);
+        let writes = hp_probe::drain();
+        let (ticks, ticks_dropped) = effect_damage::drain();
+        if diagnostic {
+            let player = PLAYER.load(Ordering::Relaxed);
+            hp_probe::log(&writes, player);
+            effect_damage::log(&ticks, player);
+            if ticks_dropped != 0 {
+                logger::log(&format!(
+                    "HP effects: {ticks_dropped} not logged, the buffer was full"
+                ));
+            }
         }
         let capturing = enabled && self.installed && PLAYER.load(Ordering::Relaxed) != 0;
         if CAPTURING.swap(capturing, Ordering::AcqRel) != capturing {
@@ -235,7 +268,10 @@ impl Probe {
         }
         events.sort_unstable_by_key(|event| event.sequence);
         let dropped = DROPPED.swap(0, Ordering::Relaxed);
-        self.numbers.update(&events, dropped != 0);
+        if diagnostic && dropped != 0 {
+            logger::log(&format!("Damage probe: {dropped} hits not captured, the buffer was full"));
+        }
+        self.numbers.update(&events, &ticks);
         for e in events {
             if !diagnostic {
                 continue;
