@@ -73,7 +73,7 @@ these, so they follow too.
 
 ## Effects: poison, scarlet rot, bleed and frost
 
-**Confirmed on 2.7.2.0 and on Convergence (log of `Logging.DamageProbe`, poison, rot, bleed and frost seen).** HP that
+**Confirmed on 2.7.2.0, also with a third-party overhaul mod (log of `Logging.DamageProbe`, poison, rot, bleed and frost seen).** HP that
 effects take does not pass through the hit call. The game adds it up once per frame and character in one function
 (`sub_1404F8BB0`, called from `sub_1404413B0`, `effect_damage.rs`): from the effects on the character it gives the
 HP change of the frame, the handle the loss is credited to, and the `spAttribute` of the effect behind it. The one
@@ -93,9 +93,22 @@ is left out. The value is what the game took, with no HP read and no timing rule
 second hit within 150 ms or poison on the target no longer change it. Each tick is its own number: there is no
 fixed timer, a number shows when the game computes the tick.
 
-Not shown yet: burns (Black Flame, Destined Death, Soul Burn: kind `-2`, credited to the player; they tick ten
-times a second and the effects on the target tell them apart), and the procs of death blight and madness (kind
-`-2`, credited to nobody, a loss right after the buildup is reset by a hit of the player). Sleep takes no HP.
+Not shown yet, seen in the log:
+
+- **Burns** (Black Flame, Destined Death, a soul burn of the third-party mod): `kind` is `-2` (they have no
+  `spAttribute` of the ailments), the loss is credited to the player, and they tick ten times a second: 482 on a
+  481 195 HP enemy for Scouring Black Flame (0.1% of max HP plus 1, `ChangeHpRate 0.1`, `ChangeHpPoint 1`), 325 and
+  then 293 for Destined Death, whose second effect (`6865`) lowers the max HP of the target by a tenth for 45 s,
+  and 17 on a 7 410 HP enemy for the soul burn. The effects on the target tell them apart: `1623000` and the
+  other ids of Black Flame, `6850` and `6865` for Destined Death, `1620000` while the soul burn ticks. Any `-2`
+  loss credited to the player is a burn of some kind, so one color would cover them without a list of ids.
+- **The procs of death blight and madness**: `kind` is `-2` and the loss is credited to nobody, 0.1 to 0.2 s after a
+  hit of the player resets that buildup (index 3 and 6 of the remaining buildup) and after two hits with no damage
+  (the target on itself, the target on the player): 6% of the max HP for death blight with the third-party jewel
+  that adds it (444 on 7 410 HP; without the jewel the proc took no HP), 474 for madness. The value is the
+  game's; only that it is the player's is a guess from the timing.
+- **Sleep** takes no HP.
+
 When two effects tick in one frame the game adds them and `kind` is the one of the larger, so the number is the
 sum in the color of that effect.
 
