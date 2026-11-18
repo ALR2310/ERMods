@@ -39,13 +39,18 @@ JourneyHUD, which then falls back to the DXGI hooks (the log says so). Both over
 ordering effect, not a rendering cost; no comparison without Toolbox was made.
 
 The game-Present route stays the preferred one: it avoids the dummy swap chain and wrapper interactions behind the
-ERSS 5.1.0 crash above, and was tested with ERSS 4, 5 and 6 and other overlay mods. The DXGI fallback can bring that
-path back, and a different load order only changes which DLL falls back.
+ERSS 5.1.0 crash above, and was tested with ERSS 4, 5 and 6 and other overlay mods.
 
-**Hypotheses, not implemented:** resolve Present from an unmodified part of its body (unique on every supported
-build); chain the detours explicitly instead of overwriting another mod's patch. `shared` is linked separately into
-each DLL, so its statics cannot arbitrate between mods. Check both load orders and several `LoadDelay` values, with
-ERSS 4/5/6, QuestPath and the Steam overlay, resizing, window modes and HDR.
+**Confirmed on 2.7.2.0 with Toolbox loaded first (one run):** the first five bytes of `GAME_PRESENT_PATTERN` are
+wildcards, so the pattern still matches when another overlay has put its `jmp` there; the pattern with those bytes
+wildcarded is unique on 2.6.2.0 to 2.7.2.0 (the same offset as the full one, checked on the four dumps). The detour is
+then made over the other overlay's `jmp`, and MinHook copies that `jmp` into the trampoline, so the original call reaches
+the other overlay and then the game. In that run the log had no "present function was not found" line and the minimap
+and the panels were drawn. `shared` is linked separately into each DLL, so its statics cannot arbitrate between mods.
+
+**Not checked:** the other load order and several `LoadDelay` values, whether the Toolbox menu draws beside it, ERSS 4/5/6,
+QuestPath and the Steam overlay, resizing, window modes and HDR. The line "the game's present function was not found"
+in the log means a fallback to DXGI.
 
 ## Open
 

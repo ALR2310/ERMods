@@ -667,9 +667,11 @@ fn install_cursor_hooks() {
     }
 }
 
-/// Start of the game's function that calls `IDXGISwapChain::Present`; unique on 2.7.0.0 to 2.7.2.0.
+/// Start of the game's function that calls `IDXGISwapChain::Present`; unique on 2.6.2.0 to 2.7.2.0. The
+/// first five bytes are wildcards: another overlay that hooked it first has put a `jmp` there, and
+/// our detour is then chained after it.
 /// The two `E8` after the stores are calls to its trivial getters (see [`QUEUE_STATE_CALL_OFFSET`]).
-const GAME_PRESENT_PATTERN: &str = "40 53 56 41 54 48 81 EC 90 00 00 00 48 83 39 00 45 8B E0 48 8B F2 48 8B D9 75 0E B0 05 48 81 C4 90 00 00 00 41 5C 5E 5B C3 48 83 BC 24 D8 00 00 00 FF 75 0E B0 08 48 81 C4 90 00 00 00 41 5C 5E 5B C3 4C 89 B4 24 C0 00 00 00 4C 89 BC 24 C8 00 00 00 E8 ?? ?? ?? ?? 4C 8B F8 E8 ?? ?? ?? ?? 48 8B C8 E8 ?? ?? ?? ?? F6 43 32 04";
+const GAME_PRESENT_PATTERN: &str = "?? ?? ?? ?? ?? 48 81 EC 90 00 00 00 48 83 39 00 45 8B E0 48 8B F2 48 8B D9 75 0E B0 05 48 81 C4 90 00 00 00 41 5C 5E 5B C3 48 83 BC 24 D8 00 00 00 FF 75 0E B0 08 48 81 C4 90 00 00 00 41 5C 5E 5B C3 4C 89 B4 24 C0 00 00 00 4C 89 BC 24 C8 00 00 00 E8 ?? ?? ?? ?? 4C 8B F8 E8 ?? ?? ?? ?? 48 8B C8 E8 ?? ?? ?? ?? F6 43 32 04";
 
 /// The call in the function to `lea rax, [queue state]; ret`: the state holds the direct command
 /// queue at `+8`.
