@@ -2,6 +2,8 @@
 
 ## [Unreleased]
 
+## [1.6.0] - 2026-11-18
+
 - Added floating damage numbers above enemies.
 - Added icons for the damage types and statuses an enemy is weak to.
 - Added an option to choose how effect timers show when effects share an icon.
