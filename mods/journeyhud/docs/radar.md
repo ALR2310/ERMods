@@ -13,6 +13,13 @@ minimap size): the player's arrow in the middle, turning with the camera (what t
 for partners, the player's spirits and the locked enemy, and N/E/S/W letters on the rim. It is drawn with ImGui
 shapes and uses no asset.
 
+`Minimap.Shape` is `Round` or `Square` (also a row in the settings menu). The square has the side of the circle's diameter, so the column under it does not move. It is the same
+drawing with other clipping: a rectangle for the plate, the guides and the rim, one quad for the map instead of the
+fan, and the larger side instead of the distance (`View::reach`) for what is inside and where a far mark is pinned
+to the rim. Not tried in game.
+With the square the map window must reach the corners (up to 1.41 times the range); it holds 256 m around the
+player at least, so a range above about 180 m can show an empty corner.
+
 ## Mechanism
 
 Ideas taken from an MIT-licensed minimap mod (see `THIRD-PARTY-NOTICES.txt`):

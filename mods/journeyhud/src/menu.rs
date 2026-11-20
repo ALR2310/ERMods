@@ -3,13 +3,16 @@
 //! `JourneyHUD.toml` file only. Layout (System > Game Options):
 //!
 //! ```text
-//! Journey HUD                -> two pages:
+//! Journey HUD                -> four pages:
 //!   Target panel             -> Target bar on/off, Health numbers on/off, Status buildup on/off, Effects on/off (target, you), Shared icon timers choice,
 //!                               Bar length slider, Size stepped, Right margin slider, Top margin slider
 //!   Minimap                  -> Minimap on/off, Map, Graces, Points, Beacons, Map for Goblins,
 //!                               Co-op players, Spirits, Enemies, Full map, Clock, Deaths, Trail, Compass, Turn with
 //!                               camera, Hide in caves, Hide at Roundtable, Hide in boss fights (all on/off),
 //!                               Minimap range and size (sliders), Minimap scale (stepped)
+//!   Damage numbers           -> on/off, effect damage, hit counter, style, size, scale, duration, and a page of
+//!                               color pickers
+//!   Hotkeys                  -> the reload, hide and layout keys, typed as a key name (`F6`, `0x75`, `J`)
 //! ```
 //!
 //! Changes apply at once and are written back to `JourneyHUD.toml` shortly after the
@@ -18,7 +21,7 @@
 use std::sync::OnceLock;
 
 use shared::i18n::Catalog;
-use shared::menu::{self, MenuBuilder, NumberSetting, Setting};
+use shared::menu::{self, ColorSetting, MenuBuilder, NumberSetting, Setting, TextSetting};
 
 use crate::config;
 use crate::settings;
@@ -78,6 +81,55 @@ static DAMAGE_STYLE: Setting = Setting {
     format: |index| settings::DamageStyle::NAMES[usize::from(index).min(1)].to_string(),
     apply: Some(settings::set_damage_style),
 };
+static DAMAGE_EFFECTS: Setting = Setting {
+    key: "DamageNumbers.EffectDamage",
+    format: menu::format_bool,
+    apply: Some(settings::set_damage_effects),
+};
+static DAMAGE_COMBO: Setting = Setting {
+    key: "DamageNumbers.Combo",
+    format: menu::format_bool,
+    apply: Some(settings::set_damage_combo),
+};
+static DAMAGE_FONT_SIZE: NumberSetting = NumberSetting::whole(
+    "DamageNumbers.FontSize",
+    8.0,
+    120.0,
+    Some(settings::set_damage_font_size),
+)
+.stepped(1.0);
+static DAMAGE_SCALE: NumberSetting =
+    NumberSetting::new("DamageNumbers.Scale", 0.5, 3.0, Some(settings::set_damage_scale))
+        .stepped(0.1);
+static DAMAGE_DURATION: NumberSetting =
+    NumberSetting::new("DamageNumbers.Duration", 0.4, 10.0, Some(settings::set_damage_duration))
+        .stepped(0.1);
+/// In the order of `damage::numbers::Kind`, which the `id` of each row is.
+static DAMAGE_COLORS: [ColorSetting; 10] = [
+    ColorSetting::new("DamageNumbers.Colors.Physical", 0, Some(settings::set_damage_color)),
+    ColorSetting::new("DamageNumbers.Colors.Magic", 1, Some(settings::set_damage_color)),
+    ColorSetting::new("DamageNumbers.Colors.Fire", 2, Some(settings::set_damage_color)),
+    ColorSetting::new("DamageNumbers.Colors.Lightning", 3, Some(settings::set_damage_color)),
+    ColorSetting::new("DamageNumbers.Colors.Holy", 4, Some(settings::set_damage_color)),
+    ColorSetting::new("DamageNumbers.Colors.Bleed", 5, Some(settings::set_damage_color)),
+    ColorSetting::new("DamageNumbers.Colors.Frost", 6, Some(settings::set_damage_color)),
+    ColorSetting::new("DamageNumbers.Colors.Poison", 7, Some(settings::set_damage_color)),
+    ColorSetting::new("DamageNumbers.Colors.Rot", 8, Some(settings::set_damage_color)),
+    ColorSetting::new("DamageNumbers.Colors.Burn", 9, Some(settings::set_damage_color)),
+];
+static RELOAD_KEY: TextSetting = TextSetting::new("General.ReloadKey", 12, settings::is_key, None);
+static TOGGLE_KEY: TextSetting = TextSetting::new(
+    "General.ToggleKey",
+    12,
+    settings::is_key_or_empty,
+    Some(settings::set_toggle_key),
+);
+static DRAG_KEY: TextSetting = TextSetting::new(
+    "General.DragKey",
+    12,
+    settings::is_key_or_empty,
+    Some(settings::set_drag_key),
+);
 static EFFECTS_PLAYER: Setting = Setting {
     key: "Player.EffectTimer",
     format: menu::format_bool,
@@ -104,6 +156,36 @@ static PLAYER_SCALE: NumberSetting =
 static RUNE_COUNTER_SCALE: NumberSetting =
     NumberSetting::new("HUD.RuneCounter.Scale", 0.3, 1.5, Some(settings::set_rune_counter_scale))
         .stepped(0.1);
+static TARGET_OFFSET_X: NumberSetting =
+    NumberSetting::whole("Target.OffsetX", -1700.0, 1700.0, Some(settings::set_target_offset_x))
+        .slider(-300.0, 300.0, 5.0);
+static TARGET_OFFSET_Y: NumberSetting =
+    NumberSetting::whole("Target.OffsetY", -900.0, 900.0, Some(settings::set_target_offset_y))
+        .slider(-300.0, 300.0, 5.0);
+static PLAYER_OFFSET_X: NumberSetting = NumberSetting::whole(
+    "HUD.Buildup.OffsetX",
+    -2000.0,
+    4000.0,
+    Some(settings::set_player_offset_x),
+)
+.slider(-300.0, 300.0, 5.0);
+static PLAYER_OFFSET_Y: NumberSetting = NumberSetting::whole(
+    "HUD.Buildup.OffsetY",
+    -1000.0,
+    1000.0,
+    Some(settings::set_player_offset_y),
+)
+.slider(-300.0, 300.0, 5.0);
+static RUNE_OFFSET_X: NumberSetting = NumberSetting::whole(
+    "HUD.RuneCounter.OffsetX",
+    -400.0,
+    1800.0,
+    Some(settings::set_rune_offset_x),
+)
+.slider(-300.0, 300.0, 5.0);
+static RUNE_OFFSET_Y: NumberSetting =
+    NumberSetting::whole("HUD.RuneCounter.OffsetY", 0.0, 1000.0, Some(settings::set_rune_offset_y))
+        .slider(0.0, 300.0, 5.0);
 static WIDTH: NumberSetting =
     NumberSetting::whole("Target.Width", 100.0, 1600.0, Some(settings::set_width))
         .slider(100.0, 800.0, 10.0);
@@ -186,6 +268,11 @@ static MINIMAP_ENEMIES: Setting = Setting {
     format: menu::format_bool,
     apply: Some(settings::set_minimap_enemies),
 };
+static MINIMAP_SHAPE: Setting = Setting {
+    key: "Minimap.Shape",
+    format: |index| settings::MinimapShape::NAMES[usize::from(index).min(1)].to_string(),
+    apply: Some(settings::set_minimap_shape),
+};
 static MINIMAP_ROTATE: Setting = Setting {
     key: "Minimap.Rotate",
     format: menu::format_bool,
@@ -232,6 +319,8 @@ fn build(b: &mut MenuBuilder) -> Result<(), String> {
     let root = b.submenu(b.root(), "Journey HUD", &t("mod.help"))?;
     let target = b.submenu(root, &t("target_page.title"), &t("target_page.help"))?;
     let minimap = b.submenu(root, &t("minimap_page.title"), &t("minimap_page.help"))?;
+    let damage = b.submenu(root, &t("damage_page.title"), &t("damage_page.help"))?;
+    let keys = b.submenu(root, &t("keys_page.title"), &t("keys_page.help"))?;
     b.toggle(target, &t("enabled.label"), &t("enabled.help"), &ENABLED, || {
         config::get().target.enabled as u8
     })?;
@@ -259,23 +348,6 @@ fn build(b: &mut MenuBuilder) -> Result<(), String> {
     b.toggle(target, &t("weak_effects.label"), &t("weak_effects.help"), &WEAK_EFFECTS, || {
         config::get().target.weak_effects as u8
     })?;
-    b.toggle(
-        target,
-        &t("damage_numbers.label"),
-        &t("damage_numbers.help"),
-        &DAMAGE_NUMBERS,
-        || config::get().damage_numbers.enabled as u8,
-    )?;
-    let styles = [t("damage_style.options.gradient"), t("damage_style.options.split")];
-    let styles: Vec<&str> = styles.iter().map(String::as_str).collect();
-    b.choice(
-        target,
-        &t("damage_style.label"),
-        &t("damage_style.help"),
-        &styles,
-        &DAMAGE_STYLE,
-        || settings::DamageStyle::parse(&config::get().damage_numbers.style) as u8,
-    )?;
     b.toggle(
         target,
         &t("effects_player.label"),
@@ -307,6 +379,20 @@ fn build(b: &mut MenuBuilder) -> Result<(), String> {
     b.number(target, &t("player_scale.label"), &t("player_scale.help"), &PLAYER_SCALE, || {
         config::get().hud.buildup.scale
     })?;
+    b.number(
+        target,
+        &t("player_offset_x.label"),
+        &t("player_offset_x.help"),
+        &PLAYER_OFFSET_X,
+        || f64::from(config::get().hud.buildup.offset_x),
+    )?;
+    b.number(
+        target,
+        &t("player_offset_y.label"),
+        &t("player_offset_y.help"),
+        &PLAYER_OFFSET_Y,
+        || f64::from(config::get().hud.buildup.offset_y),
+    )?;
     b.number(target, &t("width.label"), &t("width.help"), &WIDTH, || {
         f64::from(config::get().target.width)
     })?;
@@ -316,6 +402,82 @@ fn build(b: &mut MenuBuilder) -> Result<(), String> {
     })?;
     b.number(target, &t("offset_y.label"), &t("offset_y.help"), &OFFSET_Y, || {
         f64::from(config::get().minimap.offset_y)
+    })?;
+    b.toggle(
+        damage,
+        &t("damage_numbers.label"),
+        &t("damage_numbers.help"),
+        &DAMAGE_NUMBERS,
+        || config::get().damage_numbers.enabled as u8,
+    )?;
+    b.toggle(
+        damage,
+        &t("damage_effects.label"),
+        &t("damage_effects.help"),
+        &DAMAGE_EFFECTS,
+        || config::get().damage_numbers.effect_damage as u8,
+    )?;
+    b.toggle(damage, &t("damage_combo.label"), &t("damage_combo.help"), &DAMAGE_COMBO, || {
+        config::get().damage_numbers.combo as u8
+    })?;
+    let styles = [t("damage_style.options.gradient"), t("damage_style.options.split")];
+    let styles: Vec<&str> = styles.iter().map(String::as_str).collect();
+    b.choice(
+        damage,
+        &t("damage_style.label"),
+        &t("damage_style.help"),
+        &styles,
+        &DAMAGE_STYLE,
+        || settings::DamageStyle::parse(&config::get().damage_numbers.style) as u8,
+    )?;
+    b.number(
+        damage,
+        &t("damage_font_size.label"),
+        &t("damage_font_size.help"),
+        &DAMAGE_FONT_SIZE,
+        || config::get().damage_numbers.font_size,
+    )?;
+    b.number(damage, &t("damage_scale.label"), &t("damage_scale.help"), &DAMAGE_SCALE, || {
+        config::get().damage_numbers.scale
+    })?;
+    b.number(
+        damage,
+        &t("damage_duration.label"),
+        &t("damage_duration.help"),
+        &DAMAGE_DURATION,
+        || config::get().damage_numbers.duration,
+    )?;
+    let colors =
+        b.submenu(damage, &t("damage_colors_page.title"), &t("damage_colors_page.help"))?;
+    let names = [
+        t("damage_colors.physical"),
+        t("damage_colors.magic"),
+        t("damage_colors.fire"),
+        t("damage_colors.lightning"),
+        t("damage_colors.holy"),
+        t("damage_colors.bleed"),
+        t("damage_colors.frost"),
+        t("damage_colors.poison"),
+        t("damage_colors.rot"),
+        t("damage_colors.burn"),
+    ];
+    for (setting, name) in DAMAGE_COLORS.iter().zip(&names) {
+        b.color(
+            colors,
+            name,
+            &t("damage_colors.help"),
+            setting,
+            settings::configured_damage_color,
+        )?;
+    }
+    b.text(keys, &t("reload_key.label"), &t("reload_key.help"), &RELOAD_KEY, || {
+        config::get().general.reload_key.clone()
+    })?;
+    b.text(keys, &t("toggle_key.label"), &t("toggle_key.help"), &TOGGLE_KEY, || {
+        config::get().general.toggle_key.clone()
+    })?;
+    b.text(keys, &t("drag_key.label"), &t("drag_key.help"), &DRAG_KEY, || {
+        config::get().general.drag_key.clone()
     })?;
     b.toggle(minimap, &t("rune_counter.label"), &t("rune_counter.help"), &RUNE_COUNTER, || {
         config::get().hud.rune_counter.enabled as u8
@@ -327,6 +489,26 @@ fn build(b: &mut MenuBuilder) -> Result<(), String> {
         &RUNE_COUNTER_SCALE,
         || config::get().hud.rune_counter.scale,
     )?;
+    b.number(
+        target,
+        &t("target_offset_x.label"),
+        &t("target_offset_x.help"),
+        &TARGET_OFFSET_X,
+        || f64::from(config::get().target.offset_x),
+    )?;
+    b.number(
+        target,
+        &t("target_offset_y.label"),
+        &t("target_offset_y.help"),
+        &TARGET_OFFSET_Y,
+        || f64::from(config::get().target.offset_y),
+    )?;
+    b.number(minimap, &t("rune_offset_x.label"), &t("rune_offset_x.help"), &RUNE_OFFSET_X, || {
+        f64::from(config::get().hud.rune_counter.offset_x)
+    })?;
+    b.number(minimap, &t("rune_offset_y.label"), &t("rune_offset_y.help"), &RUNE_OFFSET_Y, || {
+        f64::from(config::get().hud.rune_counter.offset_y)
+    })?;
     b.toggle(minimap, &t("minimap.label"), &t("minimap.help"), &MINIMAP, || {
         config::get().minimap.enabled as u8
     })?;
@@ -398,6 +580,16 @@ fn build(b: &mut MenuBuilder) -> Result<(), String> {
     b.toggle(minimap, &t("minimap_trail.label"), &t("minimap_trail.help"), &MINIMAP_TRAIL, || {
         config::get().minimap.trail as u8
     })?;
+    let shapes = [t("minimap_shape.options.round"), t("minimap_shape.options.square")];
+    let shapes: Vec<&str> = shapes.iter().map(String::as_str).collect();
+    b.choice(
+        minimap,
+        &t("minimap_shape.label"),
+        &t("minimap_shape.help"),
+        &shapes,
+        &MINIMAP_SHAPE,
+        || settings::MinimapShape::parse(&config::get().minimap.shape) as u8,
+    )?;
     b.toggle(
         minimap,
         &t("minimap_compass.label"),
@@ -484,10 +676,13 @@ mod tests {
             &WEAK_DAMAGE,
             &WEAK_EFFECTS,
             &DAMAGE_NUMBERS,
+            &DAMAGE_EFFECTS,
+            &DAMAGE_COMBO,
             &DAMAGE_STYLE,
             &EFFECTS_PLAYER,
             &TIMER_STYLE,
             &MINIMAP,
+            &MINIMAP_SHAPE,
             &MINIMAP_MAP,
             &MINIMAP_GRACES,
             &MINIMAP_POINTS,
@@ -512,8 +707,22 @@ mod tests {
             &MINIMAP_RANGE,
             &MINIMAP_SIZE,
             &MINIMAP_SCALE,
+            &DAMAGE_FONT_SIZE,
+            &DAMAGE_SCALE,
+            &DAMAGE_DURATION,
+            &TARGET_OFFSET_X,
+            &TARGET_OFFSET_Y,
+            &PLAYER_OFFSET_X,
+            &PLAYER_OFFSET_Y,
+            &RUNE_OFFSET_X,
+            &RUNE_OFFSET_Y,
         ];
         let keys = settings.iter().map(|s| s.key).chain(numbers.iter().map(|n| n.key));
+        let keys = keys.chain(DAMAGE_COLORS.iter().map(|color| color.key)).chain([
+            RELOAD_KEY.key,
+            TOGGLE_KEY.key,
+            DRAG_KEY.key,
+        ]);
         for key in keys.chain([
             MINIMAP_ROTATE.key,
             MINIMAP_HIDE_IN_CAVES.key,

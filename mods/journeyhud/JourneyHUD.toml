@@ -64,6 +64,7 @@ Deaths = true           # your death count, above the minimap
 FullMap = true          # false shows only what your map fragments reveal
 ZoomInKey = ["0xBB", "0x6B"]   # zoom in (shorter range)
 ZoomOutKey = ["0xBD", "0x6D"]  # zoom out (longer range)
+Shape = "Round"         # "Round" or "Square".
 
 
 [Minimap.Layers]

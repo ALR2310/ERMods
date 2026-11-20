@@ -188,6 +188,7 @@ pub struct Minimap {
     pub zoom_in_key: Vec<String>,
     #[serde(deserialize_with = "key_list")]
     pub zoom_out_key: Vec<String>,
+    pub shape: String,
     pub layers: Layers,
     pub hide: Hide,
 }

@@ -15,7 +15,7 @@ use super::{Dot, Snapshot};
 use crate::map::layer::{Icon, IconTexture, MapIcon, MapLayer};
 use crate::map::points;
 use crate::map::tiles::{TILE, WINDOW, map_pixel};
-use crate::settings;
+use crate::settings::{self, MinimapShape};
 use crate::text;
 
 /// Seconds-based easing rates (per second) of the fade in and out and of the
@@ -226,6 +226,7 @@ impl Radar {
             radar: self,
             center,
             radius,
+            square: settings::minimap_shape() == MinimapShape::Square,
             s,
             // The marks do not shrink below 0.8 so they stay readable in a small window.
             m: s.max(0.8),
@@ -274,7 +275,9 @@ struct PointMark {
 struct View<'a> {
     radar: &'a Radar,
     center: [f32; 2],
+    /// The radius of the circle, or half the side of the square.
     radius: f32,
+    square: bool,
     s: f32,
     /// Scale of the marks and arrows.
     m: f32,
@@ -387,6 +390,12 @@ impl View<'_> {
         [dx * rx + dz * rz, -(dx * fx + dz * fz)]
     }
 
+    /// How far `offset` is from the middle, as far as the rim is concerned: the distance for the
+    /// circle, the larger side for the square.
+    fn reach(&self, [x, y]: [f32; 2]) -> f32 {
+        if self.square { x.abs().max(y.abs()) } else { x.hypot(y) }
+    }
+
     fn at(&self, direction: [f32; 2], distance: f32) -> [f32; 2] {
         [self.center[0] + direction[0] * distance, self.center[1] + direction[1] * distance]
     }
@@ -397,7 +406,18 @@ impl View<'_> {
         [sx * rx - sy * fx, sx * rz - sy * fz]
     }
 
+    /// Corners of the square `inset` pixels inside the rim.
+    fn corners(&self, inset: f32) -> ([f32; 2], [f32; 2]) {
+        let half = self.radius - inset;
+        (self.at([-1.0, -1.0], half), self.at([1.0, 1.0], half))
+    }
+
     fn draw_plate(&self, draw: &DrawListMut<'_>) {
+        if self.square {
+            let (min, max) = self.corners(0.0);
+            draw.add_rect(min, max, self.color(PLATE)).filled(true).build();
+            return;
+        }
         draw.add_circle(self.center, self.radius, self.color(PLATE))
             .filled(true)
             .num_segments(96)
@@ -423,6 +443,16 @@ impl View<'_> {
             return;
         }
         let tint = self.color(MAP_TINT);
+        if self.square {
+            let r = self.radius;
+            let [a, b, c, d] = [[-r, -r], [r, -r], [r, r], [-r, r]];
+            let at = |corner: [f32; 2]| [self.center[0] + corner[0], self.center[1] + corner[1]];
+            draw.add_image_quad(texture, at(a), at(b), at(c), at(d))
+                .uv(uv(a), uv(b), uv(c), uv(d))
+                .col(tint)
+                .build();
+            return;
+        }
         let rim = |k: usize| {
             let (sin, cos) = (k as f32 / MAP_SEGMENTS as f32 * std::f32::consts::TAU).sin_cos();
             [cos * self.radius, sin * self.radius]
@@ -445,6 +475,13 @@ impl View<'_> {
         for i in 0..4 {
             let radius = self.radius - (6.0 + i as f32 * 3.0) * self.s;
             let alpha = 0.22 - i as f32 * 0.05;
+            if self.square {
+                let (min, max) = self.corners(self.radius - radius);
+                draw.add_rect(min, max, self.color([0.0, 0.0, 0.0, alpha]))
+                    .thickness(4.0 * self.s)
+                    .build();
+                continue;
+            }
             draw.add_circle(self.center, radius, self.color([0.0, 0.0, 0.0, alpha]))
                 .num_segments(96)
                 .thickness(4.0 * self.s)
@@ -462,7 +499,7 @@ impl View<'_> {
             .iter()
             .filter_map(|point| {
                 let screen = self.to_screen(point.offset);
-                if screen[0].hypot(screen[1]) * self.pixels_per_meter > rim {
+                if self.reach(screen) * self.pixels_per_meter > rim {
                     return None;
                 }
                 let (texture, icon) = layer.map_icon(point.icon)?;
@@ -510,7 +547,8 @@ impl View<'_> {
                 self.to_screen([spot[0] - snapshot.position[0], spot[1] - snapshot.position[1]]);
             self.at(screen, self.pixels_per_meter)
         };
-        let inside = |p: [f32; 2]| (p[0] - self.center[0]).hypot(p[1] - self.center[1]) < limit;
+        let inside =
+            |p: [f32; 2]| self.reach([p[0] - self.center[0], p[1] - self.center[1]]) < limit;
         let spots: Vec<[f32; 2]> =
             self.radar.trail.iter().map(|&spot| project(spot)).chain([self.center]).collect();
         for (i, segment) in spots.windows(2).enumerate() {
@@ -530,7 +568,7 @@ impl View<'_> {
         let rim = self.radius - 10.0 * self.s;
         for marker in &snapshot.goblins {
             let screen = self.to_screen(marker.offset);
-            if screen[0].hypot(screen[1]) * self.pixels_per_meter > rim {
+            if self.reach(screen) * self.pixels_per_meter > rim {
                 continue;
             }
             let Some((texture, icon)) = layer.goblin_icon(marker.icon) else { continue };
@@ -558,7 +596,7 @@ impl View<'_> {
         let icon = self.icon(Icon::Grace);
         for offset in &snapshot.graces {
             let screen = self.to_screen(*offset);
-            if screen[0].hypot(screen[1]) * self.pixels_per_meter > rim {
+            if self.reach(screen) * self.pixels_per_meter > rim {
                 continue;
             }
             let at = self.at(screen, self.pixels_per_meter);
@@ -594,6 +632,15 @@ impl View<'_> {
 
     /// The guide rings and the rim.
     fn draw_frame(&self, draw: &DrawListMut<'_>) {
+        if self.square {
+            for fraction in [1.0 / 3.0, 2.0 / 3.0] {
+                let (min, max) = self.corners(self.radius * (1.0 - fraction));
+                draw.add_rect(min, max, self.color(GUIDE)).thickness(self.s.max(1.0)).build();
+            }
+            let (min, max) = self.corners(0.0);
+            draw.add_rect(min, max, self.color(RING)).thickness(2.0 * self.s.max(0.8)).build();
+            return;
+        }
         for fraction in [1.0 / 3.0, 2.0 / 3.0] {
             draw.add_circle(self.center, self.radius * fraction, self.color(GUIDE))
                 .num_segments(96)
@@ -674,7 +721,7 @@ impl View<'_> {
     /// radar. Outside, it is pinned to the rim when `pin`, else dropped.
     fn place(&self, offset: [f32; 2], pin: bool) -> Option<([f32; 2], bool)> {
         let screen = self.to_screen(offset);
-        let meters = screen[0].hypot(screen[1]);
+        let meters = self.reach(screen);
         let rim = self.radius - 10.0 * self.s;
         if meters * self.pixels_per_meter <= rim {
             return Some((self.at(screen, self.pixels_per_meter), true));
@@ -714,7 +761,9 @@ impl View<'_> {
         let em = TEXT_EM * self.m;
         for (i, letter) in ["N", "E", "S", "W"].into_iter().enumerate() {
             let (sin, cos) = (i as f32 * std::f32::consts::FRAC_PI_2).sin_cos();
-            let at = self.at(self.to_screen([sin, cos]), self.radius - 12.0 * self.s);
+            let direction = self.to_screen([sin, cos]);
+            let at =
+                self.at(direction.map(|d| d / self.reach(direction)), self.radius - 12.0 * self.s);
             draw.add_circle(at, 8.0 * self.m, self.color(BADGE)).filled(true).build();
             let size = text::measure(ui, letter, em);
             let pos = [(at[0] - size[0] / 2.0).round(), (at[1] - size[1] / 2.0).round()];
@@ -807,6 +856,7 @@ mod tests {
             radar: &radar,
             center: [0.0, 0.0],
             radius: 96.0,
+            square: false,
             s: 1.0,
             m: 1.0,
             pixels_per_meter: 1.0,
@@ -817,6 +867,27 @@ mod tests {
     }
 
     #[test]
+    fn a_square_pins_what_is_far_to_its_edge_and_keeps_what_is_near() {
+        let radar = Radar { camera: NORTH_UP, ..Radar::default() };
+        let view = View {
+            radar: &radar,
+            center: [0.0, 0.0],
+            radius: 100.0,
+            square: true,
+            s: 1.0,
+            m: 1.0,
+            pixels_per_meter: 1.0,
+            layer: None,
+        };
+        // 80 east and 80 north is inside a square of 100 (it is outside a circle of 100 with the rim at 90).
+        assert!(view.place([80.0, 80.0], false).is_some());
+        assert_eq!(view.place([200.0, 100.0], false), None);
+        let (pinned, inside) = view.place([200.0, 100.0], true).unwrap();
+        assert!(!inside);
+        assert_eq!(pinned, [90.0, -45.0]);
+    }
+
+    #[test]
     fn what_the_camera_faces_is_up_and_its_right_is_right() {
         // Camera looking along +X: its right is +Z... world directions map as the camera sees them.
         let radar = Radar { camera: ([0.0, 1.0], [1.0, 0.0]), ..Radar::default() };
@@ -824,6 +895,7 @@ mod tests {
             radar: &radar,
             center: [0.0, 0.0],
             radius: 96.0,
+            square: false,
             s: 1.0,
             m: 1.0,
             pixels_per_meter: 1.0,

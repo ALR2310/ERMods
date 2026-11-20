@@ -16,9 +16,10 @@ use std::borrow::Cow;
 use crate::config;
 use crate::drag::Drag;
 use crate::map::layer::{Icon, IconTexture, MapLayer};
+use crate::map::tiles::TILE;
 use crate::radar::ui::{self as radar_ui, Placement, Radar};
 use crate::radar::{self, Snapshot as RadarSnapshot};
-use crate::settings;
+use crate::settings::{self, MinimapShape};
 use crate::target::{self, Boss, Buildup, Effect, Target};
 use crate::text;
 use crate::textures::{self, Textures};
@@ -323,7 +324,13 @@ impl ImguiRenderLoop for HudRenderLoop {
             && let Some(id) = snapshot.map
         {
             // The window must stay ahead of the widest view, within what it can hold.
-            map.follow(id, snapshot.position, settings::minimap_range() + 20.0, snapshot.fragments);
+            let range = settings::minimap_range();
+            // The corners of a square reach farther than its sides, as far as a window can hold.
+            let margin = match settings::minimap_shape() {
+                MinimapShape::Square => (range * std::f32::consts::SQRT_2 + 20.0).min(TILE as f32),
+                _ => range + 20.0,
+            };
+            map.follow(id, snapshot.position, margin, snapshot.fragments);
         }
         if !hidden {
             self.radar.draw(

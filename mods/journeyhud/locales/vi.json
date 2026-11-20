@@ -42,6 +42,87 @@
       "split": "Tách"
     }
   },
+  "damage_page": {
+    "title": "Số sát thương",
+    "help": "Các con số nổi trên đầu kẻ địch: hiện gì, trông ra sao và màu sắc."
+  },
+  "damage_effects": {
+    "label": "Sát thương hiệu ứng",
+    "help": "Hiện cả sát thương không đến từ đòn đánh của bạn: độc, thối rữa, nổ chảy máu và băng, sát thương đốt và các hiệu ứng khác."
+  },
+  "damage_combo": {
+    "label": "Gộp đòn đánh nhanh",
+    "help": "Các đòn đánh liên tiếp cộng vào một số, kèm bộ đếm số đòn."
+  },
+  "damage_font_size": {
+    "label": "Cỡ số",
+    "help": "Cỡ chữ của một đòn thường ở 1080p. Đòn chí mạng và sát thương nổ gấp đôi."
+  },
+  "damage_scale": {
+    "label": "Tỉ lệ số",
+    "help": "Hệ số nhân kích thước mọi số sát thương."
+  },
+  "damage_duration": {
+    "label": "Thời gian hiện số",
+    "help": "Số giây một con số ở lại trên màn hình."
+  },
+  "damage_colors_page": {
+    "title": "Màu số",
+    "help": "Màu của từng loại số sát thương."
+  },
+  "damage_colors": {
+    "help": "Chọn màu của loại số sát thương này.",
+    "physical": "Vật lý",
+    "magic": "Phép thuật",
+    "fire": "Lửa",
+    "lightning": "Sét",
+    "holy": "Thánh",
+    "bleed": "Nổ chảy máu",
+    "frost": "Nổ đóng băng",
+    "poison": "Độc",
+    "rot": "Thối rữa",
+    "burn": "Đốt"
+  },
+  "player_offset_x": {
+    "label": "Dịch thanh tích lũy sang phải",
+    "help": "Dịch thanh tích lũy hiệu ứng của bạn sang phải, từ chỗ dưới các biểu tượng trạng thái."
+  },
+  "player_offset_y": {
+    "label": "Dịch thanh tích lũy xuống",
+    "help": "Dịch thanh tích lũy hiệu ứng của bạn xuống dưới."
+  },
+  "target_offset_x": {
+    "label": "Lề phải thanh mục tiêu",
+    "help": "Khoảng cách của thanh mục tiêu tới mép phải. 0 giữ nó dưới minimap."
+  },
+  "target_offset_y": {
+    "label": "Lề trên thanh mục tiêu",
+    "help": "Khoảng cách tới mép trên. Đã dời đi thì thanh không còn đi theo minimap."
+  },
+  "rune_offset_x": {
+    "label": "Lề phải bộ đếm rune",
+    "help": "Khoảng cách của bộ đếm rune đã dời tới mép phải."
+  },
+  "rune_offset_y": {
+    "label": "Lề trên bộ đếm rune",
+    "help": "Khoảng cách của bộ đếm rune đã dời tới mép trên."
+  },
+  "keys_page": {
+    "title": "Phím tắt",
+    "help": "Gõ tên phím như F6, J hoặc 0x75 (mã phím ảo)."
+  },
+  "reload_key": {
+    "label": "Phím nạp lại cấu hình",
+    "help": "Nạp lại JourneyHUD.toml mà không cần khởi động lại game."
+  },
+  "toggle_key": {
+    "label": "Phím ẩn/hiện",
+    "help": "Ẩn và hiện minimap cùng thanh mục tiêu. Để trống là không dùng phím."
+  },
+  "drag_key": {
+    "label": "Phím dời bố cục",
+    "help": "Cho kéo minimap và thanh mục tiêu bằng chuột. Để trống là không dùng phím."
+  },
   "effects_player": {
     "label": "Hiệu ứng của bạn",
     "help": "Hiện thời gian còn lại của các hiệu ứng của bạn dưới hàng icon trạng thái của game."
@@ -158,6 +239,14 @@
   "minimap_compass": {
     "label": "La bàn",
     "help": "Hiện N, E, S, W ở viền minimap."
+  },
+  "minimap_shape": {
+    "label": "Hình dạng minimap",
+    "help": "Hình dạng của minimap.",
+    "options": {
+      "round": "Tròn",
+      "square": "Vuông"
+    }
   },
   "minimap_rotate": {
     "label": "Xoay theo camera",

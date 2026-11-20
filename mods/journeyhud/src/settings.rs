@@ -50,6 +50,23 @@ impl DamageStyle {
     }
 }
 
+#[derive(Clone, Copy, PartialEq, Debug)]
+pub enum MinimapShape {
+    Round,
+    Square,
+}
+
+impl MinimapShape {
+    pub const NAMES: [&'static str; 2] = ["Round", "Square"];
+
+    pub fn parse(name: &str) -> Self {
+        match name.trim().to_ascii_lowercase().as_str() {
+            "square" => Self::Square,
+            _ => Self::Round,
+        }
+    }
+}
+
 /// The minimap ranges (meters from the center to the rim) the zoom keys step through.
 const ZOOM_LEVELS: [i32; 3] = [50, 100, 200];
 
@@ -115,6 +132,7 @@ static MINIMAP_SIZE: AtomicI32 = AtomicI32::new(125);
 /// hidden now. A reload keeps the hidden state: it is the player's, not the file's.
 static TOGGLE_KEY: AtomicI32 = AtomicI32::new(0);
 static HIDDEN: AtomicBool = AtomicBool::new(false);
+static MINIMAP_SHAPE: AtomicU8 = AtomicU8::new(MinimapShape::Round as u8);
 /// `Logging.MapProbe`: extra diagnostic lines in the log, for tracking down a map problem.
 static MAP_PROBE: AtomicBool = AtomicBool::new(false);
 /// `Logging.EnemyProbe`: how many hostile enemies the minimap sees, in the log.
@@ -133,8 +151,8 @@ static DAMAGE_DURATION: AtomicU32 = AtomicU32::new(1.2f32.to_bits());
 /// Takes every setting from the loaded config.
 pub fn load(config: &Config) {
     set_damage_numbers(config.damage_numbers.enabled as u8);
-    DAMAGE_COMBO.store(config.damage_numbers.combo, Ordering::Relaxed);
-    DAMAGE_EFFECTS.store(config.damage_numbers.effect_damage, Ordering::Relaxed);
+    set_damage_combo(config.damage_numbers.combo as u8);
+    set_damage_effects(config.damage_numbers.effect_damage as u8);
     DAMAGE_STYLE.store(DamageStyle::parse(&config.damage_numbers.style) as u8, Ordering::Relaxed);
     let template = crate::config::template().damage_numbers.colors;
     for ((slot, value), default) in
@@ -148,16 +166,9 @@ pub fn load(config: &Config) {
         });
         slot.store(color, Ordering::Relaxed);
     }
-    DAMAGE_FONT_SIZE.store(
-        (config.damage_numbers.font_size.clamp(8.0, 120.0) as f32).to_bits(),
-        Ordering::Relaxed,
-    );
-    DAMAGE_SCALE
-        .store((config.damage_numbers.scale.clamp(0.5, 3.0) as f32).to_bits(), Ordering::Relaxed);
-    DAMAGE_DURATION.store(
-        (config.damage_numbers.duration.clamp(0.4, 10.0) as f32).to_bits(),
-        Ordering::Relaxed,
-    );
+    set_damage_font_size(config.damage_numbers.font_size);
+    set_damage_scale(config.damage_numbers.scale);
+    set_damage_duration(config.damage_numbers.duration);
     let (target, minimap) = (&config.target, &config.minimap);
     set_enabled(target.enabled as u8);
     set_show_numbers(target.numbers as u8);
@@ -207,6 +218,7 @@ pub fn load(config: &Config) {
     set_minimap_hide_in_boss_fights(minimap.hide.in_boss_fights as u8);
     set_minimap_range(f64::from(minimap.range));
     TOGGLE_KEY.store(parse_virtual_key(&config.general.toggle_key, 0), Ordering::Relaxed);
+    set_minimap_shape(MinimapShape::parse(&minimap.shape) as u8);
     MAP_PROBE.store(config.logging.map_probe, Ordering::Relaxed);
     STATE_CHANGES.store(config.logging.state_changes && config.logging.log_file, Ordering::Relaxed);
     ENEMY_PROBE.store(config.logging.enemy_probe, Ordering::Relaxed);
@@ -349,6 +361,24 @@ pub fn target_offset() -> [f32; 2] {
 }
 
 /// The key that starts and ends the drag mode (0 = none).
+/// Whether `text` names a key (see `shared::input::parse_virtual_key`).
+pub fn is_key(text: &str) -> bool {
+    parse_virtual_key(text, 0) != 0
+}
+
+/// A key, or nothing for no key.
+pub fn is_key_or_empty(text: &str) -> bool {
+    text.is_empty() || is_key(text)
+}
+
+pub fn set_toggle_key(text: &str) {
+    TOGGLE_KEY.store(parse_virtual_key(text, 0), Ordering::Relaxed);
+}
+
+pub fn set_drag_key(text: &str) {
+    DRAG_KEY.store(parse_virtual_key(text, 0), Ordering::Relaxed);
+}
+
 pub fn drag_key() -> i32 {
     DRAG_KEY.load(Ordering::Relaxed)
 }
@@ -513,6 +543,17 @@ pub fn toggle_hidden() {
     HIDDEN.fetch_xor(true, Ordering::Relaxed);
 }
 
+pub fn minimap_shape() -> MinimapShape {
+    match MINIMAP_SHAPE.load(Ordering::Relaxed) {
+        1 => MinimapShape::Square,
+        _ => MinimapShape::Round,
+    }
+}
+
+pub fn set_minimap_shape(index: u8) {
+    MINIMAP_SHAPE.store(index.min(1), Ordering::Relaxed);
+}
+
 pub fn zoom_in_keys() -> [i32; ZOOM_KEYS] {
     ZOOM_IN_KEYS.each_ref().map(|key| key.load(Ordering::Relaxed))
 }
@@ -560,6 +601,45 @@ pub fn set_effects_target(value: u8) {
 
 pub fn set_damage_numbers(value: u8) {
     DAMAGE_NUMBERS.store(value != 0, Ordering::Relaxed);
+}
+
+pub fn set_damage_effects(value: u8) {
+    DAMAGE_EFFECTS.store(value != 0, Ordering::Relaxed);
+}
+
+pub fn set_damage_combo(value: u8) {
+    DAMAGE_COMBO.store(value != 0, Ordering::Relaxed);
+}
+
+pub fn set_damage_font_size(value: f64) {
+    DAMAGE_FONT_SIZE.store((value.clamp(8.0, 120.0) as f32).to_bits(), Ordering::Relaxed);
+}
+
+pub fn set_damage_scale(value: f64) {
+    DAMAGE_SCALE.store((value.clamp(0.5, 3.0) as f32).to_bits(), Ordering::Relaxed);
+}
+
+pub fn set_damage_duration(value: f64) {
+    DAMAGE_DURATION.store((value.clamp(0.4, 10.0) as f32).to_bits(), Ordering::Relaxed);
+}
+
+/// The color of the damage number kind at `index` (`damage::numbers::Kind`) as `0xRRGGBB`.
+pub fn set_damage_color(index: usize, rgb: u32) {
+    if let Some(slot) = DAMAGE_COLORS.get(index) {
+        slot.store(rgb & 0xFF_FFFF, Ordering::Relaxed);
+    }
+}
+
+/// The color at `index` as the config file has it, or the template's when it is not `#RRGGBB`.
+pub fn configured_damage_color(index: usize) -> u32 {
+    let config = crate::config::get();
+    let template = crate::config::template();
+    let text =
+        |colors: &crate::config::DamageColors| colors.all().get(index).copied().map(str::to_owned);
+    text(&config.damage_numbers.colors)
+        .and_then(|value| parse_color(&value))
+        .or_else(|| text(&template.damage_numbers.colors).and_then(|value| parse_color(&value)))
+        .unwrap_or(0xFF_FFFF)
 }
 
 pub fn damage_effects() -> bool {
@@ -771,7 +851,14 @@ pub fn set_minimap_size(value: f64) {
 
 #[cfg(test)]
 mod tests {
-    use super::{TimerStyle, next_range, parse_color};
+    use super::{MinimapShape, TimerStyle, next_range, parse_color};
+
+    #[test]
+    fn the_shape_is_read_by_name_and_round_by_default() {
+        assert_eq!(MinimapShape::parse(" square "), MinimapShape::Square);
+        assert_eq!(MinimapShape::parse("anything else"), MinimapShape::Round);
+        assert_eq!(MinimapShape::NAMES[MinimapShape::Square as usize], "Square");
+    }
 
     #[test]
     fn colors_are_read_as_hex_with_or_without_the_hash() {

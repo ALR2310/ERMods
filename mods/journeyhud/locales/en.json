@@ -42,6 +42,87 @@
       "split": "Split"
     }
   },
+  "damage_page": {
+    "title": "Damage numbers",
+    "help": "The numbers floating above enemies: what they show, how they look and their colors."
+  },
+  "damage_effects": {
+    "label": "Effect damage",
+    "help": "Also show damage that is not from your hits: poison, scarlet rot, bleed and frost bursts, burns and other effects."
+  },
+  "damage_combo": {
+    "label": "Merge quick hits",
+    "help": "Hits in quick succession grow one number, with a counter of the hits."
+  },
+  "damage_font_size": {
+    "label": "Number size",
+    "help": "Size of a plain hit at 1080p. Critical hits and bursts are twice that."
+  },
+  "damage_scale": {
+    "label": "Number scale",
+    "help": "Size multiplier of all damage numbers."
+  },
+  "damage_duration": {
+    "label": "Number duration",
+    "help": "Seconds a number stays on screen."
+  },
+  "damage_colors_page": {
+    "title": "Number colors",
+    "help": "The color of each kind of damage number."
+  },
+  "damage_colors": {
+    "help": "Pick the color of this kind of damage number.",
+    "physical": "Physical",
+    "magic": "Magic",
+    "fire": "Fire",
+    "lightning": "Lightning",
+    "holy": "Holy",
+    "bleed": "Blood loss burst",
+    "frost": "Frostbite burst",
+    "poison": "Poison",
+    "rot": "Scarlet rot",
+    "burn": "Burns"
+  },
+  "player_offset_x": {
+    "label": "Buildup gauge shift right",
+    "help": "Moves your own buildup gauge to the right, from its place under the status icons."
+  },
+  "player_offset_y": {
+    "label": "Buildup gauge shift down",
+    "help": "Moves your own buildup gauge down."
+  },
+  "target_offset_x": {
+    "label": "Target bar right margin",
+    "help": "Distance of the target bar from the right edge. 0 keeps it under the minimap."
+  },
+  "target_offset_y": {
+    "label": "Target bar top margin",
+    "help": "Distance from the top edge. Once moved, the bar stops following the minimap."
+  },
+  "rune_offset_x": {
+    "label": "Rune counter right margin",
+    "help": "Distance of the moved rune counter from the right edge."
+  },
+  "rune_offset_y": {
+    "label": "Rune counter top margin",
+    "help": "Distance of the moved rune counter from the top edge."
+  },
+  "keys_page": {
+    "title": "Hotkeys",
+    "help": "Type a key name such as F6, J or 0x75 (a virtual-key code)."
+  },
+  "reload_key": {
+    "label": "Reload config key",
+    "help": "Reloads JourneyHUD.toml without restarting the game."
+  },
+  "toggle_key": {
+    "label": "Hide and show key",
+    "help": "Hides and shows the minimap and the target panel. Empty means no key."
+  },
+  "drag_key": {
+    "label": "Move layout key",
+    "help": "Lets you drag the minimap and the target bar with the mouse. Empty means no key."
+  },
   "effects_player": {
     "label": "Your effects",
     "help": "Show the time left of your own effects under the game's status icons."
@@ -158,6 +239,14 @@
   "minimap_compass": {
     "label": "Compass",
     "help": "Show N, E, S and W on the rim of the minimap."
+  },
+  "minimap_shape": {
+    "label": "Minimap shape",
+    "help": "The shape of the minimap.",
+    "options": {
+      "round": "Round",
+      "square": "Square"
+    }
   },
   "minimap_rotate": {
     "label": "Turn with camera",
