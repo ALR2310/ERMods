@@ -51,6 +51,12 @@ fn is_enemy(chr: &ChrIns, threat: &HashMap<i32, u32>) -> bool {
         && threat.get(&chr.npc_param_id).is_some_and(|&level| level > 0)
 }
 
+/// Whether `chr` is a hostile enemy, not a summon, an ally or a harmless NPC.
+pub fn is_hostile(chr: &ChrIns) -> bool {
+    let mut guard = THREAT.lock().unwrap_or_else(|e| e.into_inner());
+    is_enemy(chr, guard.get_or_insert_with(build_threat_table))
+}
+
 /// `f(chr)` for every living hostile enemy among the active characters of `WorldChrMan::chr_sets`.
 /// With `Logging.EnemyProbe` it logs how many there are and in how many sets, when that changes.
 pub fn for_each(world_chr_man: &WorldChrMan, mut f: impl FnMut(&ChrIns)) {

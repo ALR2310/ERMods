@@ -1,19 +1,12 @@
 #![allow(non_snake_case)] // crate name is "JourneyHUD" to control the output DLL's filename
 
-mod boss_list;
 mod config;
-mod damage_numbers;
-mod damage_probe;
+mod damage;
 mod drag;
-mod effect_damage;
-mod enemy_tags;
-mod hp_probe;
-mod hud_movie;
+mod hud;
 mod map;
 mod menu;
 mod radar;
-mod ring;
-mod rune_counter;
 mod settings;
 mod state_icons;
 mod target;
@@ -63,8 +56,8 @@ pub unsafe extern "C" fn DllMain(hmodule: u64, reason: u32) -> bool {
         });
         state_icons::install();
         state_icons::install_gauge();
-        hud_movie::install();
-        rune_counter::install();
+        hud::movie::install();
+        hud::rune_counter::install();
         // The overlay hooks the game's DX12 swap chain; other mods and overlays hook it too, so
         // `LoadDelay` can hold this back (its own thread: the rest of the mod does not wait).
         match config::get().general.load_delay {

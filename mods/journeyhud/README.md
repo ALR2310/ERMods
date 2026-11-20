@@ -24,7 +24,7 @@ and needs the DX12 renderer.
 Your hits also float above the enemy as damage numbers: one with the colors of its damage types stacked, or one per type
 (`Style`). Critical hits (backstabs, ripostes) and the bursts of bleed and frost are bigger and longer, with a splash mark.
 Hits in quick succession grow one number with a hit counter (`Combo`), the poison and scarlet rot you do show as small
-numbers at each tick (`DoT`), and the bleed and frost bursts as big ones.
+numbers at each tick, burns and other effect damage as small physical-colored ones, and the bleed and frost bursts as big ones.
 `[DamageNumbers]` sets the style, size, duration and colors (`[DamageNumbers.Colors]`, `#RRGGBB` per type). `HUD.EnemyDamage = false`
 hides the game's own numbers over ordinary enemies (needs a restart).
 

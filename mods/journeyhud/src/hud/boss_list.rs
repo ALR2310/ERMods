@@ -1,7 +1,7 @@
 //! Spreads the game's boss health bars further apart, so the posture bar and the effect icons the
 //! mod draws under a bar fit before the next one (`docs/boss_bar.md`). The bars are the clips
 //! `BossList/Item_0_0` to `Item_2_0` of the HUD movie, 55 px apart: the movie is edited as the game
-//! opens it (`hud_movie`).
+//! opens it (`hud::movie`).
 
 use std::sync::atomic::{AtomicU8, AtomicU32, Ordering};
 

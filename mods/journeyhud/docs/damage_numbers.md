@@ -12,7 +12,7 @@ colored by damage type, then fall and fade (`[DamageNumbers]` in `JourneyHUD.tom
 
 **Confirmed.** The game's hit function is called as `(ctx, attacker, hit_info, arg4, flag)`; `[ctx + 8]` is the
 target, and `attacker` is the attacking character (the same call AutoRegen observes, see
-[AutoRegen per-hit](../../autoregen/docs/per_hit.md)). `damage_probe.rs` redirects that one `call` found by AOB
+[AutoRegen per-hit](../../autoregen/docs/per_hit.md)). `damage/probe.rs` redirects that one `call` found by AOB
 (`CALL_AOB`), copies what it needs into a bounded lock-free ring and forwards all five arguments, so a prologue hook
 from another mod still chains. Nothing else runs in the hook; the frame task drains the ring.
 
@@ -66,42 +66,46 @@ The summing follows the style: `Split` grows each type's number, `Gradient` the 
 
 ## Colors
 
-`[DamageNumbers.Colors]` holds one `#RRGGBB` per kind (physical, the four elements, bleed, frost, poison, rot), read into
+`[DamageNumbers.Colors]` holds one `#RRGGBB` per kind (physical, the four elements, bleed, frost, poison, rot, burn), read into
 atomics by `settings::load` so a config reload applies them. The defaults live only in the template; a value that is not
 six hex digits is logged and replaced by the template's. The gradient, the CRIT mark and the combo counter take their color from
 these, so they follow too.
 
-## Effects: poison, scarlet rot, bleed and frost
+## Effects
 
 **Confirmed on 2.7.2.0, also with a third-party overhaul mod (log of `Logging.DamageProbe`, poison, rot, bleed and frost seen).** HP that
 effects take does not pass through the hit call. The game adds it up once per frame and character in one function
-(`sub_1404F8BB0`, called from `sub_1404413B0`, `effect_damage.rs`): from the effects on the character it gives the
+(`sub_1404F8BB0`, called from `sub_1404413B0`, `damage/effects.rs`): from the effects on the character it gives the
 HP change of the frame, the handle the loss is credited to, and the `spAttribute` of the effect behind it. The one
 call of it is found by AOB (`CALL_AOB`, unique on 2.6.2.0 to 2.7.2.0), redirected like the hit call, and the result
 is copied into a ring (character, credited handle, kind, change).
 
 | Kind (`spAttribute`) | Effect | Shown as |
 |---|---|---|
-| 20 | poison | small number (`DoT`), at each tick, about once a second (343 on a 481 195 HP enemy) |
+| 20 | poison | small number, at each tick, about once a second (343 on a 481 195 HP enemy) |
 | 21 | scarlet rot | the same (599 on a 324 996 HP enemy) |
 | 22 | blood loss | a big number, once (50 595: the burst) |
 | 23 | frostbite | a big number, once (33 704: the burst) |
+| -2 | burns (Black Flame, Soul Burn, Destined Death) | small number in the `Burn` color (dark gray), at each tick, ten a second |
 
-A number is shown when the loss is negative, the credited handle is the player's (the same value as the `attacker` of
-the player's hits) and the character is not the player. What the game credits to someone else or to nobody
-is left out. The value is what the game took, with no HP read and no timing rule, so a hit in the same frame, a
-second hit within 150 ms or poison on the target no longer change it. Each tick is its own number: there is no
-fixed timer, a number shows when the game computes the tick.
+These are shown when the loss is negative, the credited handle is the player's (the same value as the `attacker`
+of the player's hits) and the character is not the player. The value is what the game took, with no HP read and
+no timing rule, so a hit in the same frame, a second hit within 150 ms or poison on the target no longer change
+it. Each tick is its own number: there is no fixed timer, a number shows when the game computes the tick.
 
-Not shown yet, seen in the log:
-
+**Other effect damage.** Every other loss that effects take from a hostile enemy (`radar::enemies::is_hostile`, the
+classification of the minimap dots) shows as a small number in the color of physical damage, because neither whose
+it is nor of what kind is known: the ailments credited to someone else, and the effects with no `kind` that are not
+credited to the player. Each tick is its own number, as often as the game computes it. `EffectDamage` turns all
+of this damage that does not come from a hit (the four ailments, burns and the rest) on or off together; your hits
+always show. Seen in the log:
 - **Burns** (Black Flame, Destined Death, a soul burn of the third-party mod): `kind` is `-2` (they have no
   `spAttribute` of the ailments), the loss is credited to the player, and they tick ten times a second: 482 on a
   481 195 HP enemy for Scouring Black Flame (0.1% of max HP plus 1, `ChangeHpRate 0.1`, `ChangeHpPoint 1`), 325 and
   then 293 for Destined Death, whose second effect (`6865`) lowers the max HP of the target by a tenth for 45 s,
   and 17 on a 7 410 HP enemy for the soul burn. The effects on the target tell them apart: `1623000` and the
   other ids of Black Flame, `6850` and `6865` for Destined Death, `1620000` while the soul burn ticks. Any `-2`
-  loss credited to the player is a burn of some kind, so one color would cover them without a list of ids.
+  loss credited to the player is a burn of some kind, so they share one color (`Burn`): the third-party mod's Soul Burn and Destined Death are rebalanced versions of Black Flame.
 - **The procs of death blight and madness**: `kind` is `-2` and the loss is credited to nobody, 0.1 to 0.2 s after a
   hit of the player resets that buildup (index 3 and 6 of the remaining buildup) and after two hits with no damage
   (the target on itself, the target on the player): 6% of the max HP for death blight with the third-party jewel
@@ -109,21 +113,22 @@ Not shown yet, seen in the log:
   game's; only that it is the player's is a guess from the timing.
 - **Sleep** takes no HP.
 
-When two effects tick in one frame the game adds them and `kind` is the one of the larger, so the number is the
+Both of the first two now show as other effect damage (a burn as a number per tick, the procs of death blight and
+madness as one small number each). When two effects tick in one frame the game adds them and `kind` is the one of the larger, so the number is the
 sum in the color of that effect.
 
 ## Drawing
 
-Size is `FontSize` (42 px at 1080p) times `Scale`; CRIT and bursts are twice that, DoT ticks half, the hit counter 0.4, in Impact (loaded from the Windows fonts folder,
+Size is `FontSize` (42 px at 1080p) times `Scale`; CRIT and bursts are twice that, effect ticks half, the hit counter 0.4, in Impact (loaded from the Windows fonts folder,
 the default font when it is absent), and grows or shrinks with the distance from the camera, full size at 15 m,
 between three quarters and one and a half times (a burst never gets smaller than full size). Each number shrinks to 40% while it falls and fades out; a CRIT or a burst stays twice as long.
 
 The frame task owns popup lifetimes and hands copied data (popups, camera) to the render thread, which never
 touches a character pointer. The anchor stays in the world and is projected each frame with `CSCamera.pers_cam_1`
-(view matrix, `fov`, `aspect`), fitted to the picture inside the window for non-16:9 displays. The number falls in screen space. At most 5 numbers per enemy and 96 in total; a loading screen, a cutscene, a stale
+(view matrix, `fov`, `aspect`), fitted to the picture inside the window for non-16:9 displays. The number falls in screen space. At most 5 numbers of hits and bursts per enemy (the ticks of effects are not counted) and 96 in total; a loading screen, a cutscene, a stale
 frame or a new player character clears them, and the HUD toggle hides them.
 
-The game's own damage number on ordinary enemy tags (`Damage` clip, `enemy_tags.rs`) is moved off the picture when
+The game's own damage number on ordinary enemy tags (`Damage` clip, `hud/enemy_tags.rs`) is moved off the picture when
 `HUD.EnemyDamage` is false, keeping the health bar when `HUD.EnemyHPBar` is set; `EnemyHPBar = false`
 hides both. The key does not depend on `[DamageNumbers]`. The movie is edited at start, so changing that needs a
 restart.
@@ -146,5 +151,5 @@ black outline, tinted with the number's color; not taken from the game).
 `Logging.DamageProbe` logs every hit (`Damage probe:`), the popup it made (`Damage popup:`) and the HP change of
 the target for two seconds after it. It also logs each effect result (`HP effects:`: the change, the max HP, the
 handle it is credited to, the kind) and each HP the game sets on a character (`HP write:`), with the calls on the
-stack that led to it (`hp_probe.rs`, `sub_1404374E0`): a hit comes through `436BF9`, the effects through `4415B3`
+stack that led to it (`damage/hp_probe.rs`, `sub_1404374E0`): a hit comes through `436BF9`, the effects through `4415B3`
 (RVAs on 2.7.2.0). The probe is off by default and writes a lot at an area load.

@@ -24,7 +24,7 @@ chạy DX12.
 Đòn đánh của bạn cũng nổi trên đầu địch dưới dạng số sát thương: một số xếp chồng màu các loại sát thương, hoặc mỗi loại
 một số (`Style`). Đòn chí mạng (đâm sau lưng, riposte) và sát thương nổ Bleed/Frostbite to hơn, hiện lâu hơn, kèm hình vụ nổ
 gai cùng màu với số. Các đòn đánh liên tiếp cộng dồn vào một số kèm bộ đếm số đòn (`Combo`), sát thương độc và
-thối rữa bạn gây ra hiện thành số nhỏ ở mỗi tick (`DoT`), còn sát thương nổ Bleed/Frostbite hiện thành số to. Mục `[DamageNumbers]` chỉnh kiểu hiển thị, cỡ chữ, thời gian và màu (`[DamageNumbers.Colors]`, `#RRGGBB` cho từng loại).
+thối rữa bạn gây ra hiện thành số nhỏ ở mỗi tick, sát thương đốt và các hiệu ứng khác hiện thành số nhỏ màu vật lý (`EffectDamage` bật/tắt mọi sát thương không đến từ đòn đánh của bạn), còn sát thương nổ Bleed/Frostbite hiện thành số to. Mục `[DamageNumbers]` chỉnh kiểu hiển thị, cỡ chữ, thời gian và màu (`[DamageNumbers.Colors]`, `#RRGGBB` cho từng loại).
 `HUD.EnemyDamage = false` ẩn số sát thương mặc định của game trên địch thường (cần khởi động lại).
 
 Log giữ thông tin khởi tạo, cảnh báo và lỗi. `Logging.StateChanges` thêm thay đổi mục tiêu, điểm yếu,

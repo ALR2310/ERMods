@@ -8,7 +8,7 @@ use std::time::Instant;
 
 use shared::{codepatch, logger, memscan};
 
-use crate::ring::Ring;
+use super::ring::Ring;
 
 /// The call of the calculation inside its only caller; the call is at `CALL_AT`. Unique on 2.6.2.0 to 2.7.2.0.
 const CALL_AOB: &str = "E8 ?? ?? ?? ?? 48 8B C8 88 5C 24 28 48 8D 45 D8 8B D7 4C 8D 4D 38 48 89 44 24 20 4C 8D 45 48 E8 ?? ?? ?? ?? 8B 55 DC 32 C9";

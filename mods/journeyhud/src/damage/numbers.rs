@@ -9,8 +9,8 @@ use fromsoftware_shared::FromStatic;
 use hudhook::imgui::{Context, FontId, FontSource, TextureId, Ui};
 use shared::memscan;
 
-use crate::damage_probe::{Event, position};
-use crate::effect_damage::EffectTick;
+use super::effects::EffectTick;
+use super::probe::{Event, position};
 use crate::{settings, target, text};
 
 /// Sizes as multiples of the `FontSize` setting: a critical hit or a burst, a DoT tick, the hit counter.
@@ -59,6 +59,7 @@ enum Kind {
     Frost,
     Poison,
     Rot,
+    Burn,
 }
 
 impl Kind {
@@ -139,6 +140,8 @@ struct Popup {
     /// Index in a split hit: later numbers leave later.
     row: usize,
     critical: bool,
+    /// A small number: the tick of an effect, not a hit or a burst.
+    dot: bool,
     sequence: usize,
     at: Instant,
 }
@@ -151,10 +154,6 @@ impl Popup {
 
     fn burst(&self) -> bool {
         matches!(self.kind, Kind::Bleed | Kind::Frost)
-    }
-
-    fn dot(&self) -> bool {
-        matches!(self.kind, Kind::Poison | Kind::Rot)
     }
 
     fn life(&self) -> f32 {
@@ -314,9 +313,15 @@ impl Tracker {
             ));
         }
         if popup.row == 0
-            && self.popups.iter().filter(|p| p.handle == popup.handle && p.row == 0).count() >= 5
+            && !popup.dot
+            && self
+                .popups
+                .iter()
+                .filter(|p| p.handle == popup.handle && p.row == 0 && !p.dot)
+                .count()
+                >= 5
             && let Some(oldest) =
-                self.popups.iter().find(|p| p.handle == popup.handle).map(|p| p.sequence)
+                self.popups.iter().find(|p| p.handle == popup.handle && !p.dot).map(|p| p.sequence)
         {
             self.popups.retain(|p| p.handle != popup.handle || p.sequence != oldest);
         }
@@ -392,6 +397,7 @@ impl Tracker {
             fan: 0.0,
             row: 0,
             critical: combo.critical,
+            dot: false,
             sequence: combo.sequence,
             at: combo.last,
         };
@@ -455,26 +461,35 @@ impl Tracker {
         self.show(&combo, anchor);
     }
 
-    /// A tick of an effect of yours on an enemy: poison and scarlet rot as small numbers, the bursts
-    /// of bleed and frost as big ones. What the game credits to someone else, or to nobody, is not shown.
+    /// A tick of an effect on an enemy, each one its own number: poison and scarlet rot of yours as small
+    /// ones, the bursts of bleed and frost as big ones. The effects that carry no kind and are credited to
+    /// the player are burns (Black Flame and the like). What the game credits to someone else or to nobody
+    /// (and the procs of death blight and madness) shows small in the color of physical damage, on hostile
+    /// enemies only.
     fn effect(&mut self, tick: &EffectTick, player: Option<u64>) {
         let Some(handle) = tick.handle else { return };
-        let kind = match tick.kind {
-            20 if settings::damage_dot() => Kind::Poison,
-            21 if settings::damage_dot() => Kind::Rot,
-            22 => Kind::Bleed,
-            23 => Kind::Frost,
-            _ => return,
+        if !settings::damage_effects()
+            || tick.changes[0] >= 0
+            || Some(handle) == player
+            || tick.at.elapsed() > STALE
+        {
+            return;
+        }
+        let known = match tick.kind {
+            20 => Some(Kind::Poison),
+            21 => Some(Kind::Rot),
+            22 => Some(Kind::Bleed),
+            23 => Some(Kind::Frost),
+            -2 => Some(Kind::Burn),
+            _ => None,
         };
-        if tick.changes[0] >= 0 || player != Some(tick.causer as u64) || Some(handle) == player {
-            return;
-        }
-        if tick.at.elapsed() > STALE {
-            return;
-        }
-        let height = if kind == Kind::Poison || kind == Kind::Rot { 1.0 } else { 1.5 };
-        let Some(mut anchor) = enemy_position(handle) else { return };
-        anchor[1] += height;
+        let (kind, hostile) = match known.filter(|_| player == Some(tick.causer as u64)) {
+            Some(kind) => (kind, false),
+            None => (Kind::Physical, true),
+        };
+        let burst = matches!(kind, Kind::Bleed | Kind::Frost);
+        let Some(mut anchor) = enemy_position(handle, hostile) else { return };
+        anchor[1] += if burst { 1.5 } else { 1.0 };
         self.show_effect(handle, kind, tick.changes[0].unsigned_abs(), anchor);
     }
 
@@ -493,6 +508,7 @@ impl Tracker {
             fan: 0.0,
             row: 0,
             critical: false,
+            dot: !matches!(kind, Kind::Bleed | Kind::Frost),
             // Apart from the sequences of the hits, which count up from 0.
             sequence: usize::MAX - self.effects,
             at: Instant::now(),
@@ -500,13 +516,16 @@ impl Tracker {
     }
 }
 
-/// Where the character with this handle stands, `None` when it is gone.
-fn enemy_position(handle: u64) -> Option<[f32; 3]> {
+/// Where the character with this handle stands, `None` when it is gone or, with `hostile`, is not a hostile enemy.
+fn enemy_position(handle: u64, hostile: bool) -> Option<[f32; 3]> {
     // SAFETY: singleton access fails while the world is unavailable.
     let world = unsafe { WorldChrMan::instance() }.ok()?;
     let raw = handle.to_ne_bytes();
     let handle = memscan::read_safe::<FieldInsHandle>(raw.as_ptr() as usize)?;
     let chr = target::chr_by_handle(world, handle)?;
+    if hostile && !crate::radar::enemies::is_hostile(chr) {
+        return None;
+    }
     position(std::ptr::from_ref(chr) as usize)
 }
 
@@ -632,7 +651,7 @@ pub fn draw(
         let em = unit
             * if popup.critical || popup.burst() {
                 CRIT_SIZE
-            } else if popup.dot() {
+            } else if popup.dot {
                 DOT_SIZE
             } else {
                 1.0
@@ -748,9 +767,9 @@ mod tests {
         tracker.show_effect(7, Kind::Bleed, 50595, [0.0; 3]);
         assert_eq!(tracker.popups.len(), 2);
         assert_eq!(tracker.popups[0].label, "343");
-        assert!(tracker.popups[0].dot() && !tracker.popups[0].burst());
+        assert!(tracker.popups[0].dot && !tracker.popups[0].burst());
         assert_eq!(tracker.popups[1].label, "50595");
-        assert!(tracker.popups[1].burst() && !tracker.popups[1].dot());
+        assert!(tracker.popups[1].burst() && !tracker.popups[1].dot);
         assert_ne!(tracker.popups[0].sequence, tracker.popups[1].sequence);
     }
 
@@ -768,6 +787,24 @@ mod tests {
         own.handle = player;
         tracker.effect(&own, player);
         assert!(tracker.popups.is_empty());
+    }
+
+    #[test]
+    fn the_ticks_of_effects_are_not_capped_like_hits() {
+        let mut tracker = Tracker::default();
+        for _ in 0..20 {
+            tracker.show_effect(7, Kind::Physical, 325, [0.0; 3]);
+        }
+        assert_eq!(tracker.popups.len(), 20);
+        let mut event = Event::test_hit();
+        for _ in 0..20 {
+            tracker.hit_with(&event, false);
+        }
+        assert_eq!(tracker.popups.iter().filter(|p| !p.dot).count(), 5);
+        event.target = Some(7);
+        tracker.hit_with(&event, false);
+        // The 20 ticks of the effects, the 5 hits kept for the first target, the hit on this one.
+        assert_eq!(tracker.popups.len(), 26);
     }
 
     #[test]

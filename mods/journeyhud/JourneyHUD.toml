@@ -109,23 +109,24 @@ OffsetY = 20            # Distance from the top edge.
 Enabled = true
 Scale = 1.0             # Text size multiplier (0.5 - 3.0).
 Duration = 1.0          # Seconds on screen (0.4 - 10.0).
-FontSize = 42           # Size of a plain hit; CRIT and bursts are twice that, DoT half.
+FontSize = 42           # Size of a plain hit; CRIT and bursts are twice that, effect ticks half.
 Style = "Gradient"      # "Gradient" = one number, the type colors stacked; "Split" = a number per type.
 Combo = true            # Hits in quick succession grow one number, with a counter of the hits (x3).
-DoT = true              # Small numbers for the poison and scarlet rot damage you do to enemies.
+EffectDamage = true     # Numbers for damage that is not from your hits: ailments, burns, other effects.
 
 
 [DamageNumbers.Colors]
 # Color of each kind of number, as "#RRGGBB".
-Physical = "#F2F2E6"
-Magic = "#588DF0"
-Fire = "#FF7C23"
-Lightning = "#FFEC46"
-Holy = "#FFE0A5"
-Bleed = "#F31615"
-Frost = "#B3D9FF"
-Poison = "#99E283"
-Rot = "#FF5B56"
+Physical = "#ffffff"
+Magic = "#1e4da5"
+Fire = "#e35717"
+Lightning = "#ffc337"
+Holy = "#fffd93"
+Bleed = "#ff0000"
+Frost = "#82d1ff"
+Poison = "#387725"
+Rot = "#d74b4b"
+Burn = "#383333"        # Black Flame, Soul Burn, Destined Death and other burns of yours.
 
 
 [Logging]

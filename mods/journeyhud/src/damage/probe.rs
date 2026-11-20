@@ -11,7 +11,9 @@ use fromsoftware_shared::FromStatic;
 
 use shared::{codepatch, logger, memscan};
 
-use crate::{effect_damage, hp_probe, settings};
+use crate::settings;
+
+use super::{effects, hp_probe};
 
 // The call into AutoRegen's observed function, without patching its prologue.
 const CALL_AOB: &str = "4D 8B C6 49 8B D4 44 88 6C 24 20 48 8B CD E8 ?? ?? ?? ?? 44 0F B6 A4 24 A8 00 00 00 4D 8B C6 45 0F B6 CC";
@@ -186,7 +188,7 @@ pub struct Probe {
     effects_attempted: bool,
     effects_installed: bool,
     watches: Vec<Watch>,
-    numbers: crate::damage_numbers::Tracker,
+    numbers: super::numbers::Tracker,
 }
 
 struct Watch {
@@ -208,7 +210,7 @@ impl Probe {
             hp_probe::set_active(false);
         }
         if !enabled {
-            effect_damage::set_active(false);
+            effects::set_active(false);
         }
         if !enabled && !self.installed {
             self.attempted = false;
@@ -230,15 +232,15 @@ impl Probe {
         hp_probe::set_active(diagnostic && self.hp_installed);
         if enabled && !self.effects_attempted && PLAYER.load(Ordering::Relaxed) != 0 {
             self.effects_attempted = true;
-            self.effects_installed = effect_damage::install();
+            self.effects_installed = effects::install();
         }
-        effect_damage::set_active(enabled && self.effects_installed);
+        effects::set_active(enabled && self.effects_installed);
         let writes = hp_probe::drain();
-        let (ticks, ticks_dropped) = effect_damage::drain();
+        let (ticks, ticks_dropped) = effects::drain();
         if diagnostic {
             let player = PLAYER.load(Ordering::Relaxed);
             hp_probe::log(&writes, player);
-            effect_damage::log(&ticks, player);
+            effects::log(&ticks, player);
             if ticks_dropped != 0 {
                 logger::log(&format!(
                     "HP effects: {ticks_dropped} not logged, the buffer was full"

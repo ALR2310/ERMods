@@ -55,7 +55,7 @@ pub struct Textures {
     pub waku_left: TextureId,
     pub deco: TextureId,
     pub deco_left: TextureId,
-    /// The mark of a critical hit and of a burst of buildup, white to be tinted (`damage_numbers.rs`).
+    /// The mark of a critical hit and of a burst of buildup, white to be tinted (`damage/numbers.rs`).
     pub crit: TextureId,
 }
 

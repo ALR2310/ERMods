@@ -4,7 +4,9 @@
 use shared::gfx::hook;
 use shared::logger;
 
-use crate::{boss_list, enemy_tags, settings};
+use crate::settings;
+
+use super::{boss_list, enemy_tags};
 
 const MOVIE: &str = "01_000_fe.gfx";
 

@@ -156,7 +156,7 @@ pub fn run() {
     let mut last_kinds: Vec<usize> = Vec::new();
     let mut last_effects: Vec<i32> = Vec::new();
     let mut last_own: Vec<i32> = Vec::new();
-    let mut damage_probe = crate::damage_probe::Probe::default();
+    let mut damage_probe = crate::damage::probe::Probe::default();
     shared::task::run_recurring_safe(
         cs_task,
         "Target",

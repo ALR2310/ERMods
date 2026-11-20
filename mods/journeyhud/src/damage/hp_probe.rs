@@ -8,7 +8,7 @@ use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 
 use shared::{codepatch, logger, memscan};
 
-use crate::ring::Ring;
+use super::ring::Ring;
 
 /// The start of the function that sets HP; unique on 2.6.2.0 to 2.7.2.0.
 const SET_HP_AOB: &str = "48 89 5C 24 18 48 89 6C 24 20 89 54 24 10 56 57 41 56 48 83 EC 30 8B A9 38 01 00 00 48 8D B9 3C 01 00 00 45 33 F6 0F 29 74 24 20 44 89 74 24 50 0F 28 F3 41 0F B6 F0 48 8B D9 85 D2 79 07 48 8D 44 24 50 EB 0B 3B 17 48 8D 44 24 58 48 0F 4F C7 8B 00 89 81 38 01 00 00 E8 ?? ?? ?? ?? 84 C0 0F 85 ?? ?? ?? ??";

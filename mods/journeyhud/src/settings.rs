@@ -123,8 +123,8 @@ static DAMAGE_PROBE: AtomicBool = AtomicBool::new(false);
 static STATE_CHANGES: AtomicBool = AtomicBool::new(false);
 static DAMAGE_NUMBERS: AtomicBool = AtomicBool::new(false);
 static DAMAGE_COMBO: AtomicBool = AtomicBool::new(false);
-static DAMAGE_DOT: AtomicBool = AtomicBool::new(false);
-static DAMAGE_COLORS: [AtomicU32; 9] = [const { AtomicU32::new(0xFF_FFFF) }; 9];
+static DAMAGE_EFFECTS: AtomicBool = AtomicBool::new(false);
+static DAMAGE_COLORS: [AtomicU32; 10] = [const { AtomicU32::new(0xFF_FFFF) }; 10];
 static DAMAGE_STYLE: AtomicU8 = AtomicU8::new(DamageStyle::Gradient as u8);
 static DAMAGE_FONT_SIZE: AtomicU32 = AtomicU32::new(42.0f32.to_bits());
 static DAMAGE_SCALE: AtomicU32 = AtomicU32::new(1.0f32.to_bits());
@@ -134,7 +134,7 @@ static DAMAGE_DURATION: AtomicU32 = AtomicU32::new(1.2f32.to_bits());
 pub fn load(config: &Config) {
     set_damage_numbers(config.damage_numbers.enabled as u8);
     DAMAGE_COMBO.store(config.damage_numbers.combo, Ordering::Relaxed);
-    DAMAGE_DOT.store(config.damage_numbers.dot, Ordering::Relaxed);
+    DAMAGE_EFFECTS.store(config.damage_numbers.effect_damage, Ordering::Relaxed);
     DAMAGE_STYLE.store(DamageStyle::parse(&config.damage_numbers.style) as u8, Ordering::Relaxed);
     let template = crate::config::template().damage_numbers.colors;
     for ((slot, value), default) in
@@ -562,8 +562,8 @@ pub fn set_damage_numbers(value: u8) {
     DAMAGE_NUMBERS.store(value != 0, Ordering::Relaxed);
 }
 
-pub fn damage_dot() -> bool {
-    DAMAGE_DOT.load(Ordering::Relaxed)
+pub fn damage_effects() -> bool {
+    DAMAGE_EFFECTS.load(Ordering::Relaxed)
 }
 
 pub fn damage_combo() -> bool {
@@ -578,7 +578,7 @@ fn parse_color(text: &str) -> Option<u32> {
     valid.then(|| u32::from_str_radix(digits, 16).ok()).flatten()
 }
 
-/// The configured color of the damage number kind at `index` (`damage_numbers::Kind`), as RGB 0 to 1.
+/// The configured color of the damage number kind at `index` (`damage::numbers::Kind`), as RGB 0 to 1.
 pub fn damage_color(index: usize) -> [f32; 3] {
     let rgb = DAMAGE_COLORS[index].load(Ordering::Relaxed);
     [16, 8, 0].map(|shift| ((rgb >> shift) & 0xFF) as f32 / 255.0)
@@ -640,7 +640,7 @@ pub fn set_rune_counter(value: u8) {
 }
 
 pub fn set_boss_bar(value: u8) {
-    crate::boss_list::warn_if_stale(value != 0);
+    crate::hud::boss_list::warn_if_stale(value != 0);
     BOSS_BAR.store(value != 0, Ordering::Relaxed);
 }
 

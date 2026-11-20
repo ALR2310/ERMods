@@ -89,7 +89,7 @@ high there, so the texture scale is 0.46, and the cap ends about 3 px inside the
 The right end was short: the bar measured at less than full health stops before its end. At full health the line
 ends at x 1952 (screen pixels), so the bar runs from 466 to 1463 in the 1080 space (997 wide).
 
-## Spreading the game's bars apart (`src/boss_list.rs`)
+## Spreading the game's bars apart (`src/hud/boss_list.rs`)
 
 The game's boss bars are `BossList/Item_0_0` to `Item_2_0` of `menu/01_000_fe.gfx` (found in IDA on 2.7.2.0 by
 the string `BossList/Item_%d_0`, used in the HUD constructor `sub_1408C6C80`; the movie parsed from the

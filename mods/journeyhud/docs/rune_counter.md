@@ -1,7 +1,7 @@
 # Rune counter at the top right (`HUD.RuneCounter.Enabled`)
 
 Status: **Built, not yet tried in game** (the clip place is confirmed by the log, the target place is an estimate).
-Conventions: [research notes](../../../docs/research/README.md). Code: `src/rune_counter.rs`.
+Conventions: [research notes](../../../docs/research/README.md). Code: `src/hud/rune_counter.rs`.
 
 A request asked for the rune counter at the top right, above the minimap, so the bottom right stays clear for a
 streamer's avatar.

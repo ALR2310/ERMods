@@ -5,7 +5,7 @@
 //! used as offsets from the player (all in the same Havok space), so no map
 //! coordinate conversion is needed. Details: `docs/radar.md`.
 
-mod enemies;
+pub mod enemies;
 pub mod ui;
 
 /// `TEAM_TYPE` of Torrent.

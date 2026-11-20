@@ -63,8 +63,7 @@ pub struct DamageNumbers {
     pub enabled: bool,
     pub style: String,
     pub combo: bool,
-    #[serde(rename = "DoT")]
-    pub dot: bool,
+    pub effect_damage: bool,
     pub font_size: f64,
     pub scale: f64,
     pub duration: f64,
@@ -83,11 +82,12 @@ pub struct DamageColors {
     pub frost: String,
     pub poison: String,
     pub rot: String,
+    pub burn: String,
 }
 
 impl DamageColors {
-    /// In the order of `damage_numbers::Kind`.
-    pub fn all(&self) -> [&str; 9] {
+    /// In the order of `damage::numbers::Kind`.
+    pub fn all(&self) -> [&str; 10] {
         [
             &self.physical,
             &self.magic,
@@ -98,6 +98,7 @@ impl DamageColors {
             &self.frost,
             &self.poison,
             &self.rot,
+            &self.burn,
         ]
     }
 }

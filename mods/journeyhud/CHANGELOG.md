@@ -2,6 +2,8 @@
 
 ## [Unreleased]
 
+- Added damage numbers for burns and other effect damage on enemies.
+
 ## [1.6.0] - 2026-11-18
 
 - Added floating damage numbers above enemies.

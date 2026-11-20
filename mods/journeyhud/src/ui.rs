@@ -201,7 +201,7 @@ struct HudRenderLoop {
     /// `None` when the textures failed to load: the bars are drawn flat.
     textures: Option<Textures>,
     /// The heavy font of the damage numbers; `None` when it is missing: the default font is used.
-    number_font: Option<crate::damage_numbers::NumberFont>,
+    number_font: Option<crate::damage::numbers::NumberFont>,
 }
 
 /// What was just lost of a bar (health or posture), shown as a block between the current value
@@ -248,7 +248,7 @@ impl ImguiRenderLoop for HudRenderLoop {
     fn initialize<'a>(&'a mut self, ctx: &mut Context, render_context: &'a mut dyn RenderContext) {
         // No imgui.ini next to the game exe.
         ctx.set_ini_filename(None);
-        self.number_font = crate::damage_numbers::load_font(ctx);
+        self.number_font = crate::damage::numbers::load_font(ctx);
         match textures::load(render_context) {
             Ok(loaded) => self.textures = Some(loaded),
             Err(e) => logger::error(&format!("Overlay: textures failed ({e}), flat bars")),
@@ -267,7 +267,7 @@ impl ImguiRenderLoop for HudRenderLoop {
         self.s = self.area[3] / BASE_HEIGHT * settings::scale();
         let beyond =
             if w / h > ASPECT { (w / h * BASE_HEIGHT - ASPECT * BASE_HEIGHT) / 2.0 } else { 0.0 };
-        self.edge = crate::rune_counter::edge_shift(beyond);
+        self.edge = crate::hud::rune_counter::edge_shift(beyond);
         // Every text of the overlay sets its own size (`text.rs`), so the target's `Scale` does not
         // resize the minimap's letters and clock.
         ctx.io_mut().font_global_scale = (self.area[3] / BASE_HEIGHT * FONT_SCALE).max(0.85);
@@ -340,7 +340,7 @@ impl ImguiRenderLoop for HudRenderLoop {
         PANEL_ALPHA.store(self.panel_alpha.to_bits(), Ordering::Relaxed);
         if !hidden && radar::in_control() {
             let mark = self.textures.as_ref().map(|textures| textures.crit);
-            crate::damage_numbers::draw(ui, self.area, self.panel_alpha, self.number_font, mark);
+            crate::damage::numbers::draw(ui, self.area, self.panel_alpha, self.number_font, mark);
         }
         let icons_wanted = if crate::state_icons::shown() { 1.0 } else { 0.0 };
         self.icons_alpha += (icons_wanted - self.icons_alpha) * (dt * FADE_RATE).min(1.0);
@@ -427,7 +427,7 @@ fn target_rect(area: &[f32; 4], s: f32, width: f32) -> [f32; 4] {
 }
 
 fn boss_pitch() -> f32 {
-    BOSS_BAR_PITCH + crate::boss_list::extra_px()
+    BOSS_BAR_PITCH + crate::hud::boss_list::extra_px()
 }
 
 /// Where the bars of the boss in slot `slot` start, under its game health bar: `[x, y, w]`. The place
@@ -437,7 +437,7 @@ fn boss_rect(area: &[f32; 4], slot: usize) -> [f32; 3] {
     [
         area[0] + BOSS_BAR_LEFT * res,
         area[1]
-            + (BOSS_BAR_BOTTOM + crate::boss_list::drop_px() - slot as f32 * boss_pitch()
+            + (BOSS_BAR_BOTTOM + crate::hud::boss_list::drop_px() - slot as f32 * boss_pitch()
                 + BOSS_BAR_GAP)
                 * res,
         BOSS_BAR_WIDTH * res,
