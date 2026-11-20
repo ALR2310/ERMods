@@ -5,7 +5,6 @@
 - Added damage numbers for burns and other effect damage on enemies.
 - Added a square minimap shape.
 - Improved the default colors of the damage numbers.
-- Added damage number settings, color pickers, position offsets and hotkeys to the in-game menu.
 
 ## [1.6.0] - 2026-11-18
 
