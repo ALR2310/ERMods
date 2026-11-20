@@ -5,11 +5,14 @@ use std::time::Duration;
 
 use super::abi::*;
 use super::host::{Provider, Registration, connect};
-use super::settings::{NumberSetting, Setting, setting_changed};
+use super::settings::{ColorSetting, NumberSetting, Setting, TextSetting, setting_changed};
 use crate::logger;
 
 type ByteReader = fn() -> u8;
 type NumberReader = fn() -> f64;
+type TextReader = fn() -> String;
+/// Reads a color (`0xRRGGBB`) from the config by the `id` of its [`ColorSetting`].
+type ColorReader = fn(usize) -> u32;
 
 /// A committed menu: every row with the function that reads its value from the
 /// mod's config, so [`Menu::sync`] can show a reloaded config.
@@ -17,6 +20,8 @@ pub struct Menu {
     registration: Registration,
     rows: Vec<(RowHandle, ByteReader)>,
     numbers: Vec<(&'static NumberSetting, NumberReader)>,
+    colors: Vec<(&'static ColorSetting, ColorReader)>,
+    texts: Vec<(&'static TextSetting, TextReader)>,
 }
 
 impl Menu {
@@ -29,6 +34,16 @@ impl Menu {
         }
         for (setting, read) in &self.numbers {
             if let Err(reason) = setting.show(&self.registration, read()) {
+                logger::log(&format!("Menu: row update failed ({reason})"));
+            }
+        }
+        for (setting, read) in &self.texts {
+            if let Err(reason) = setting.show(&self.registration, &read()) {
+                logger::log(&format!("Menu: row update failed ({reason})"));
+            }
+        }
+        for (setting, read) in &self.colors {
+            if let Err(reason) = setting.show(&self.registration, read(setting.id)) {
                 logger::log(&format!("Menu: row update failed ({reason})"));
             }
         }
@@ -46,6 +61,8 @@ pub struct MenuBuilder {
     provider: Provider,
     rows: Vec<(RowHandle, ByteReader)>,
     numbers: Vec<(&'static NumberSetting, NumberReader)>,
+    colors: Vec<(&'static ColorSetting, ColorReader)>,
+    texts: Vec<(&'static TextSetting, TextReader)>,
 }
 
 impl MenuBuilder {
@@ -151,6 +168,38 @@ impl MenuBuilder {
         self.numbers.push((setting, read));
         Ok(())
     }
+
+    /// A text row for a short name (see [`TextSetting`]); `read` gives the config's text.
+    pub fn text(
+        &mut self,
+        page: PageHandle,
+        label: &str,
+        help: &str,
+        setting: &'static TextSetting,
+        read: TextReader,
+    ) -> Result<(), String> {
+        self.provider.add_text(page, label, help, setting, &read())?;
+        self.texts.push((setting, read));
+        Ok(())
+    }
+
+    /// A color row with the game's color picker; `read` gives the config's color for the `id` of
+    /// `setting`. A host without color pickers gets no row (the config file still has the color).
+    pub fn color(
+        &mut self,
+        page: PageHandle,
+        label: &str,
+        help: &str,
+        setting: &'static ColorSetting,
+        read: ColorReader,
+    ) -> Result<(), String> {
+        if !self.provider.color_picker {
+            return Ok(());
+        }
+        self.provider.add_color(page, label, help, setting, read(setting.id))?;
+        self.colors.push((setting, read));
+        Ok(())
+    }
 }
 
 /// Registers a mod's menu on a worker thread and stores it in `slot` once the host has installed
@@ -173,11 +222,17 @@ pub fn spawn_menu(
         };
         let result = (|| {
             let provider = connection.register_provider(provider_id, display_name, hmodule)?;
-            let mut builder = MenuBuilder { provider, rows: Vec::new(), numbers: Vec::new() };
+            let mut builder = MenuBuilder {
+                provider,
+                rows: Vec::new(),
+                numbers: Vec::new(),
+                colors: Vec::new(),
+                texts: Vec::new(),
+            };
             build(&mut builder)?;
-            let MenuBuilder { provider, rows, numbers } = builder;
+            let MenuBuilder { provider, rows, numbers, colors, texts } = builder;
             let registration = provider.commit()?;
-            Ok::<_, String>(Menu { registration, rows, numbers })
+            Ok::<_, String>(Menu { registration, rows, numbers, colors, texts })
         })();
         match result {
             Ok(menu) => {

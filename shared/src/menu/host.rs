@@ -12,6 +12,7 @@ use super::abi::*;
 pub struct Connection {
     pub(super) api: Api,
     pub(super) numeric_slider: bool,
+    pub(super) color_picker: bool,
 }
 
 /// Polls for the loaded `ERNativeUI.dll` and negotiates API 1.2, falling back to 1.1 (no numeric
@@ -52,7 +53,11 @@ pub fn connect(timeout: Duration) -> Result<Connection, String> {
                 ERUI_OK => {
                     validate_api(&api, version)?;
                     select_language(&api);
-                    return Ok(Connection { api, numeric_slider: has_numeric_slider(&api) });
+                    return Ok(Connection {
+                        api,
+                        numeric_slider: has_numeric_slider(&api),
+                        color_picker: has_color_picker(&api),
+                    });
                 }
                 ERUI_HOST_FAILED => {
                     return Err("ERNativeUI host initialization failed (see ERNativeUI.log)".into());
@@ -84,6 +89,7 @@ pub struct Provider {
     pub(super) provider: ProviderHandle,
     pub(super) root: PageHandle,
     pub(super) numeric_slider: bool,
+    pub(super) color_picker: bool,
     pub(super) committed: bool,
 }
 
@@ -121,6 +127,7 @@ impl Connection {
             provider,
             root,
             numeric_slider: self.numeric_slider,
+            color_picker: self.color_picker,
             committed: false,
         })
     }
@@ -348,6 +355,15 @@ impl Registration {
         // SAFETY: the function pointers were checked by `validate_api`; the descriptor and the strings it views outlive the call.
         let status = unsafe { (self.api.set_text_input_value.unwrap())(self.provider, row, &view) };
         check(status, "set_text_input_value")
+    }
+
+    /// Replaces a color row's value (`0xRRGGBB`, no callback).
+    pub(super) fn set_color(&self, row: RowHandle, rgb: u32) -> Result<(), String> {
+        let color = Color::from_rgb(rgb);
+        // SAFETY: the function pointers were checked by `has_color_picker`; the color is copied before the call returns.
+        let status =
+            unsafe { (self.api.set_color_picker_value.unwrap())(self.provider, row, &color) };
+        check(status, "set_color_picker_value")
     }
 
     /// Moves a numeric slider to `scaled / 10^places` (no callback).

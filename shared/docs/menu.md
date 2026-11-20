@@ -66,6 +66,12 @@ Mod level (`builder.rs`, `settings.rs`):
   `stepped(step)` makes the row a native numeric slider when the host has API 1.2 and the range
   has 2 to 256 positions that the step reaches exactly; `slider(from, to, step)` does the
   same for a range narrower than the accepted one. Otherwise the row stays a text row.
+- Short text: `TextSetting` with `MenuBuilder::text` (a hotkey name, for one). `accept` checks what the
+  player confirmed and a refused text puts the previous one back; accepted text is applied and saved as typed.
+- Colors: `ColorSetting` with `MenuBuilder::color`, the game's own color picker (host capability
+  `ERUI_CAP_COLOR_PICKER`, API 1.1 and up). The row's `id` is given to `apply` and to the `read`
+  function, so one function can serve many rows; the color is written as `#rrggbb`. A host without
+  color pickers gets no row. Not tried in game yet.
 - Menu text comes from `shared::i18n` and one JSON file per language in the mod's `locales/`.
 
 ## Open risks

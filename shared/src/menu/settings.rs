@@ -2,9 +2,9 @@
 //! saver thread that writes what the player changed back to the config.
 
 use std::ffi::c_void;
-use std::sync::OnceLock;
 use std::sync::atomic::{AtomicU32, AtomicU64, Ordering};
 use std::sync::mpsc::{self, RecvTimeoutError, Sender};
+use std::sync::{Mutex, OnceLock};
 use std::time::Duration;
 
 use super::abi::*;
@@ -115,6 +115,123 @@ pub unsafe extern "C" fn setting_changed(user_data: *mut c_void, value: u8) {
         }
         if let Some(tx) = SAVER.get() {
             let _ = tx.send((setting.key, (setting.format)(value)));
+        }
+    });
+}
+
+/// One text row bound to a config key, for a short name such as a hotkey.
+pub struct TextSetting {
+    pub key: &'static str,
+    /// Longest text the row takes (UTF-16 units; the host allows 35).
+    pub max_length: u32,
+    /// Whether the confirmed text is acceptable; if not, the previous text is put back.
+    pub accept: fn(&str) -> bool,
+    /// Runs on the host's worker thread with the accepted text (keep it short).
+    pub apply: Option<fn(&str)>,
+    /// The row, set by `add_text`, so rejected text can be put back.
+    row: OnceLock<RowHandle>,
+    /// Last accepted text.
+    last: Mutex<String>,
+}
+
+impl TextSetting {
+    pub const fn new(
+        key: &'static str,
+        max_length: u32,
+        accept: fn(&str) -> bool,
+        apply: Option<fn(&str)>,
+    ) -> Self {
+        TextSetting {
+            key,
+            max_length,
+            accept,
+            apply,
+            row: OnceLock::new(),
+            last: Mutex::new(String::new()),
+        }
+    }
+
+    /// Shows `text` in the row, e.g. after the config was reloaded.
+    pub(super) fn show(&self, registration: &Registration, text: &str) -> Result<(), String> {
+        *self.last.lock().unwrap_or_else(|e| e.into_inner()) = text.to_owned();
+        match self.row.get() {
+            Some(row) => registration.set_text(*row, text),
+            None => Ok(()),
+        }
+    }
+}
+
+unsafe extern "C" fn text_changed(user_data: *mut c_void, change: *const TextInputChange) {
+    let _ = std::panic::catch_unwind(|| {
+        if user_data.is_null() || change.is_null() {
+            return;
+        }
+        // SAFETY: the row was registered with a `static` setting as `user_data`.
+        let setting = unsafe { &*(user_data as *const TextSetting) };
+        // SAFETY: `change` was checked non-null and the host keeps it valid for the call.
+        let typed = unsafe { &*change }.text().trim().to_owned();
+        if !(setting.accept)(&typed) {
+            let last = setting.last.lock().unwrap_or_else(|e| e.into_inner()).clone();
+            if let (Some(registration), Some(row)) = (REGISTRATION.get(), setting.row.get()) {
+                let _ = registration.set_text(*row, &last);
+            }
+            return;
+        }
+        *setting.last.lock().unwrap_or_else(|e| e.into_inner()) = typed.clone();
+        if let Some(apply) = setting.apply {
+            apply(&typed);
+        }
+        if let Some(tx) = SAVER.get() {
+            let _ = tx.send((setting.key, typed));
+        }
+    });
+}
+
+/// One color row bound to a config key (`"Section.Key"`, stored as `#rrggbb`). Declare it as a
+/// `static` and add the row with [`MenuBuilder::color`](super::MenuBuilder::color).
+pub struct ColorSetting {
+    pub key: &'static str,
+    /// The mod's own number for the row, given to `apply` and to the reader of the row.
+    pub id: usize,
+    /// Runs on the host's worker thread with the confirmed color as `0xRRGGBB` (keep it short).
+    pub apply: Option<fn(usize, u32)>,
+    /// The row, set by `add_color`, so a reload can show the new color.
+    pub(super) row: OnceLock<RowHandle>,
+}
+
+impl ColorSetting {
+    pub const fn new(key: &'static str, id: usize, apply: Option<fn(usize, u32)>) -> Self {
+        ColorSetting { key, id, apply, row: OnceLock::new() }
+    }
+
+    /// Shows `rgb` in the row, e.g. after the config was reloaded.
+    pub(super) fn show(&self, registration: &Registration, rgb: u32) -> Result<(), String> {
+        match self.row.get() {
+            Some(row) => registration.set_color(*row, rgb),
+            None => Ok(()),
+        }
+    }
+}
+
+/// A color as the text stored in the config.
+fn color_text(rgb: u32) -> String {
+    format!("#{rgb:06x}")
+}
+
+unsafe extern "C" fn color_changed(user_data: *mut c_void, change: *const ColorPickerChange) {
+    let _ = std::panic::catch_unwind(|| {
+        if user_data.is_null() || change.is_null() {
+            return;
+        }
+        // SAFETY: the row was registered with a `static` setting as `user_data`.
+        let setting = unsafe { &*(user_data as *const ColorSetting) };
+        // SAFETY: `change` was checked non-null and the host keeps it valid for the call.
+        let rgb = unsafe { &*change }.rgb();
+        if let Some(apply) = setting.apply {
+            apply(setting.id, rgb);
+        }
+        if let Some(tx) = SAVER.get() {
+            let _ = tx.send((setting.key, color_text(rgb)));
         }
     });
 }
@@ -359,6 +476,61 @@ impl Provider {
         Ok(row)
     }
 
+    /// Adds a text row; the confirmed text is checked by `setting.accept` and saved like any
+    /// [`Setting`].
+    pub fn add_text(
+        &self,
+        page: PageHandle,
+        label: &str,
+        help: &str,
+        setting: &'static TextSetting,
+        initial: &str,
+    ) -> Result<RowHandle, String> {
+        *setting.last.lock().unwrap_or_else(|e| e.into_inner()) = initial.to_owned();
+        let row = self.add_text_input(
+            page,
+            label,
+            help,
+            initial,
+            "",
+            setting.max_length,
+            text_changed,
+            setting as *const TextSetting as *mut c_void,
+        )?;
+        let _ = setting.row.set(row);
+        Ok(row)
+    }
+
+    /// Adds a color row (the game's own color picker). The host must have one (`color_picker`).
+    pub fn add_color(
+        &self,
+        page: PageHandle,
+        label: &str,
+        help: &str,
+        setting: &'static ColorSetting,
+        initial: u32,
+    ) -> Result<RowHandle, String> {
+        let label = wide(label);
+        let help = wide(help);
+        let desc = ColorPickerDesc {
+            size: std::mem::size_of::<ColorPickerDesc>() as u32,
+            flags: 0,
+            label: Utf16View::of(&label),
+            help: Utf16View::of(&help),
+            changed_callback: Some(color_changed),
+            user_data: setting as *const ColorSetting as *mut c_void,
+            initial_value: Color::from_rgb(initial),
+            enabled: 1,
+        };
+        let mut row: RowHandle = 0;
+        // SAFETY: the function pointers were checked by `has_color_picker`; the descriptor and the strings it views outlive the call.
+        let status =
+            unsafe { (self.api.add_color_picker.unwrap())(self.provider, page, &desc, &mut row) };
+        check(status, "add_color_picker")?;
+        let _ = setting.row.set(row);
+        Ok(row)
+    }
+
     fn add_numeric_slider(
         &self,
         page: PageHandle,
@@ -429,6 +601,12 @@ mod tests {
         assert!(NumberSetting::new("C", 0.0, 10.0, None).slider_plan().is_none());
         assert!(NumberSetting::new("D", 0.0, 1000.0, None).stepped(1.0).slider_plan().is_none());
         assert!(NumberSetting::new("E", 0.0, 1.0, None).stepped(0.3).slider_plan().is_none());
+    }
+
+    #[test]
+    fn colors_are_saved_as_lowercase_hex() {
+        assert_eq!(color_text(0xFF_7C23), "#ff7c23");
+        assert_eq!(color_text(0x00_0A0B), "#000a0b");
     }
 
     #[test]

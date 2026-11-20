@@ -16,6 +16,7 @@ pub(super) const API_VERSION_1_1: u32 = (1 << 16) | 1;
 pub(super) const API_VERSION_1_2: u32 = (1 << 16) | 2;
 pub(super) const CAP_TOGGLE: u64 = 1 << 0;
 pub(super) const CAP_SLIDER: u64 = 1 << 1;
+pub(super) const CAP_COLOR_PICKER: u64 = 1 << 12;
 pub(super) const CAP_NUMERIC_SLIDER: u64 = 1 << 16;
 
 pub type RowHandle = u64;
@@ -212,6 +213,57 @@ pub(super) struct TextInputDesc {
     pub(super) reserved: u32,
 }
 
+/// `ERUI_Color`: an opaque RGB color.
+#[repr(C)]
+#[derive(Clone, Copy)]
+pub(super) struct Color {
+    pub(super) red: u8,
+    pub(super) green: u8,
+    pub(super) blue: u8,
+    pub(super) reserved: u8,
+}
+
+impl Color {
+    pub(super) fn from_rgb(rgb: u32) -> Self {
+        Color { red: (rgb >> 16) as u8, green: (rgb >> 8) as u8, blue: rgb as u8, reserved: 0 }
+    }
+}
+
+/// What the host passes to a color-picker callback (`ERUI_ColorPickerChangeContext`).
+#[repr(C)]
+pub struct ColorPickerChange {
+    pub(super) size: u32,
+    pub(super) flags: u32,
+    pub(super) provider: u64,
+    pub(super) row: u64,
+    pub(super) value: Color,
+    pub(super) reserved: u32,
+}
+
+impl ColorPickerChange {
+    /// The confirmed color as `0xRRGGBB`.
+    pub(super) fn rgb(&self) -> u32 {
+        u32::from(self.value.red) << 16
+            | u32::from(self.value.green) << 8
+            | u32::from(self.value.blue)
+    }
+}
+
+pub type ColorChangedCallback =
+    unsafe extern "C" fn(user_data: *mut c_void, change: *const ColorPickerChange);
+
+#[repr(C)]
+pub(super) struct ColorPickerDesc {
+    pub(super) size: u32,
+    pub(super) flags: u32,
+    pub(super) label: Utf16View,
+    pub(super) help: Utf16View,
+    pub(super) changed_callback: Option<ColorChangedCallback>,
+    pub(super) user_data: *mut c_void,
+    pub(super) initial_value: Color,
+    pub(super) enabled: u32,
+}
+
 pub(super) type Unused = Option<unsafe extern "C" fn()>;
 
 /// `ERUI_Api` (API 1.2). Field order is the ABI; entries this module does not call are opaque
@@ -279,8 +331,16 @@ pub(super) struct Api {
     pub(super) set_text_input_value:
         Option<unsafe extern "C" fn(ProviderHandle, RowHandle, *const Utf16View) -> Status>,
     pub(super) get_text_input_value: Unused,
-    pub(super) add_color_picker: Unused,
-    pub(super) set_color_picker_value: Unused,
+    pub(super) add_color_picker: Option<
+        unsafe extern "C" fn(
+            ProviderHandle,
+            PageHandle,
+            *const ColorPickerDesc,
+            *mut RowHandle,
+        ) -> Status,
+    >,
+    pub(super) set_color_picker_value:
+        Option<unsafe extern "C" fn(ProviderHandle, RowHandle, *const Color) -> Status>,
     pub(super) get_color_picker_value: Unused,
     pub(super) get_builtin_page: Unused,
     pub(super) add_input_section: Unused,
@@ -410,6 +470,13 @@ pub(super) fn select_language(api: &Api) {
         crate::i18n::set_language(identifier);
         logger::log(&format!("Menu: language {identifier}"));
     }
+}
+
+/// Whether the host can build color pickers (API 1.1 and up).
+pub(super) fn has_color_picker(api: &Api) -> bool {
+    api.capabilities & CAP_COLOR_PICKER != 0
+        && api.add_color_picker.is_some()
+        && api.set_color_picker_value.is_some()
 }
 
 /// Whether the negotiated table can build numeric sliders (API 1.2).

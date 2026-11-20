@@ -11,9 +11,11 @@ mod host;
 mod settings;
 
 pub use abi::{
-    NumericChangedCallback, NumericSliderChange, PageHandle, RowHandle, TextChangedCallback,
-    TextInputChange, ValueChangedCallback,
+    ColorChangedCallback, ColorPickerChange, NumericChangedCallback, NumericSliderChange,
+    PageHandle, RowHandle, TextChangedCallback, TextInputChange, ValueChangedCallback,
 };
 pub use builder::{Menu, MenuBuilder, spawn_menu, sync};
 pub use host::{Connection, Provider, Registration, connect};
-pub use settings::{NumberSetting, Setting, format_bool, setting_changed, start_saver};
+pub use settings::{
+    ColorSetting, NumberSetting, Setting, TextSetting, format_bool, setting_changed, start_saver,
+};
