@@ -48,6 +48,7 @@ pub struct Spirit {
     pub no_rest_resummon: bool,
     pub summon_anywhere: bool,
     pub keep_spirits_on_rest: bool,
+    pub keep_spirits_on_travel: bool,
     pub improve_senses: bool,
     pub improve_aggression: bool,
     pub improve_follow: bool,

@@ -224,10 +224,9 @@ pub fn run() {
             }
             let destroyed: Vec<u64> =
                 DESTROY_CALLS.iter().map(|c| c.load(Ordering::Relaxed)).collect();
-            text.push_str(&format!("; raw {raw_groups:?}; spirit fx {spirit_effects}; destroy calls {destroyed:?}; disappear calls (202/dismiss/left-zone/dead/reset) [{}, {}, {}, {}, {}]",
+            text.push_str(&format!("; raw {raw_groups:?}; spirit fx {spirit_effects}; destroy calls {destroyed:?}; disappear calls (202/dismiss/dead/reset) [{}, {}, {}, {}]",
                 DISAPPEAR_CALLS[0].load(Ordering::Relaxed),
                 crate::multi_spirit::DISAPPEAR_HOOK_CALLS.load(Ordering::Relaxed),
-                DISAPPEAR_CALLS[1].load(Ordering::Relaxed),
                 DISAPPEAR_CALLS[2].load(Ordering::Relaxed),
                 DISAPPEAR_CALLS[3].load(Ordering::Relaxed)
             ));
@@ -252,7 +251,11 @@ pub fn run() {
                 "; mgr req {req} active {act} dismiss {dis} stone {stone}/{active_stone} cd {cd} flags {flags:?}"
             ));
             if text != last || effects_changed {
-                logger::log(&format!("PersistProbe: {text}; player SpEffects {last_effects:?}"));
+                // The left-zone call runs every frame, so it is shown but never triggers a line.
+                logger::log(&format!(
+                    "PersistProbe: {text}; left-zone calls {}; player SpEffects {last_effects:?}",
+                    DISAPPEAR_CALLS[1].load(Ordering::Relaxed)
+                ));
                 last = text;
             }
         },

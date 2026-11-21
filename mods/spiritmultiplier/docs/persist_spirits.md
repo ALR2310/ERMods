@@ -1,8 +1,9 @@
 # Keeping spirits through a rest at a grace (`KeepSpiritsOnRest`)
 
 Status: **Confirmed** in game on 2.7.2.0: solo, and Seamless host plus a second instance. Resting at a grace
-keeps the spirits. Fast travel was investigated and **rejected**. Conventions:
-[research notes](../../../docs/research/README.md). Code: `src/keep_on_rest.rs`.
+keeps the spirits. Fast travel cannot be blocked, so `KeepSpiritsOnTravel` (experimental) summons the Ashes
+again after the load; **confirmed** in game solo with one and two Ashes. Conventions:
+[research notes](../../../docs/research/README.md). Code: `src/keep_on_rest.rs`, `src/keep_on_travel.rs`.
 
 ## Question
 
@@ -98,17 +99,40 @@ the manager's request fields, and counts the calls of the group-destroy and `Dis
 stubs (a `call` redirect, nothing runs in Rust inside the hook). Reading it around a rest tells which path
 removed the spirits.
 
-## Fast travel: rejected
+## Fast travel: summon again
 
 Solo test (summon, then fast travel to the very grace being rested at) with the diagnostics on: while the
 loading screen shows (`block 0xffffffff`) the whole `groups` map vanished (not even the key `0` entry,
 unlike a rest), the spirit characters were gone (`chr not found` in the warp log),
 `active_summon_speffect_id` became `-1` (a rest keeps it), and every `DisappearAll` and group-destroy counter
 stayed 0. The whole world and the spirit manager are destroyed and rebuilt through the loading screen, so
-there is no single removal command to block as there is for a rest. The only way left is to summon the Ashes
-again after the load (save the active Ash SpEffects, write them into `request_summon_speffect_id` at `+0x20`
-once the world is ready); spirits would reappear with the summon animation and full HP, which was judged
-not worth doing.
+there is no single removal command to block as there is for a rest.
+
+`KeepSpiritsOnTravel` (`src/keep_on_travel.rs`) therefore summons the Ashes again once the world is ready.
+It runs every frame:
+
+1. **Track**: while the world is ready, save the trigger SpEffect of every Ash that has a live local group
+   (found through the `buddy_param_id` of the groups and `trigger_speffect_to_buddy_map`), the full SpEffect
+   with the upgrade level (`active_summon_speffect_id`) and the summon goods id (`active_summon_goods_id`,
+   `+0xE4`). A snapshot survives 0.5 s of empty groups and is dropped only after that, or when the player
+   dies.
+2. **Loading**: the block id of the player is `-1`. When the world is ready again, wait 3 s; if no group
+   came back, restore.
+3. **Restore**, one Ash at a time, 1.5 s apart, only while `request_summon_speffect_id` is `-1`. Before the
+   request the mod sets what the item use sets:
+   - `spawn_origin` = the player position. Without it the groups spawn at the point from before the travel:
+     the HP bars show, the spirits are not in view.
+   - `requested_summon_goods_id` and `active_summon_goods_id`. Without them the HUD panel has no Ash name
+     and icon (`sub_140771ED0` reads the goods at `+0xE4`).
+   - `active_summmon_buddy_stone_entity_id` (`+0x3C`) = `buddy_stone_entity_id` (`+0x38`). Left at 0, the
+     next press of the Ash reads "moved to another stone area" and summons another group instead of
+     sending it back.
+
+With `MultiSpirit`, pressing one restored Ash afterwards sends back only its group (confirmed with two
+Ashes). The spirits come back with the summon animation and full HP.
+
+Not covered: `CloneSpirit` restores one cast per Ash, a restore after quitting to the title screen, and
+Seamless Co-op.
 
 ## Related
 

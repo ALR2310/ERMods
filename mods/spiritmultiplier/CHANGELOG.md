@@ -4,6 +4,7 @@
 
 - Config file is now TOML; settings from the old INI file are kept.
 - Clean code, hoping to fix false positives.
+- Added experimental option to summon spirits again after fast travel.
 
 ## [1.6.0] - 2026-11-03
 

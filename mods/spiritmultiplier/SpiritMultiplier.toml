@@ -53,6 +53,9 @@ SummonAnywhere = true
 # Spirits stay when you rest at a Site of Grace
 KeepSpiritsOnRest = true
 
+# summon the spirits again after a fast travel
+KeepSpiritsOnTravel = true
+
 # Notice enemies from farther away and remember them longer
 ImproveSenses = true
 

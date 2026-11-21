@@ -41,7 +41,7 @@ Các bản trước dùng `SpiritMultiplier.ini`. Nếu chưa có `SpiritMultipl
 - [docs/activate_limit.md](docs/activate_limit.md): kẻ địch biến mất khi có nhiều spirit.
 - [docs/multi_spirit.md](docs/multi_spirit.md): nhiều Ash cùng lúc và `CloneSpirit`.
 - [docs/summon_anywhere.md](docs/summon_anywhere.md): `NoRestResummon` và `SummonAnywhere`.
-- [docs/persist_spirits.md](docs/persist_spirits.md): giữ spirit khi nghỉ ở grace.
+- [docs/persist_spirits.md](docs/persist_spirits.md): giữ spirit khi nghỉ ở grace và triệu hồi lại sau khi fast travel.
 - [docs/ghost_color.md](docs/ghost_color.md): bỏ màu ma.
 - [docs/mimic_tear.md](docs/mimic_tear.md): giai đoạn Blob và số lượng Mimic Tear.
 - [docs/think_override.md](docs/think_override.md): tuỳ chọn AI của spirit.

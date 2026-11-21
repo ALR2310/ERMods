@@ -41,7 +41,7 @@ settings of the ini file are carried over the first time the mod runs; the ini f
 - [docs/activate_limit.md](docs/activate_limit.md): enemies vanishing with many spirits.
 - [docs/multi_spirit.md](docs/multi_spirit.md): several Ashes at once and `CloneSpirit`.
 - [docs/summon_anywhere.md](docs/summon_anywhere.md): `NoRestResummon` and `SummonAnywhere`.
-- [docs/persist_spirits.md](docs/persist_spirits.md): keeping spirits when resting at a grace.
+- [docs/persist_spirits.md](docs/persist_spirits.md): keeping spirits when resting at a grace and summoning them again after a fast travel.
 - [docs/ghost_color.md](docs/ghost_color.md): removing the ghostly tint.
 - [docs/mimic_tear.md](docs/mimic_tear.md): the Mimic Tear Blob stage and counts.
 - [docs/think_override.md](docs/think_override.md): spirit AI options.

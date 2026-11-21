@@ -8,6 +8,7 @@ mod config;
 mod conflicts;
 mod ghost_color;
 mod keep_on_rest;
+mod keep_on_travel;
 mod menu;
 mod mimic;
 mod multi_spirit;
@@ -67,6 +68,7 @@ pub unsafe extern "C" fn DllMain(hmodule: u64, reason: u32) -> bool {
         });
         probe::spawn();
         std::thread::spawn(keep_on_rest::run);
+        std::thread::spawn(keep_on_travel::run);
         std::thread::spawn(activate_limit::run);
         std::thread::spawn(ghost_color::run);
         std::thread::spawn(mimic::run);
