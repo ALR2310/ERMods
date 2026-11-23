@@ -2,6 +2,8 @@
 
 ## [Unreleased]
 
+## [1.7.0] - 2026-11-23
+
 - Added option to summon spirits again after fast travel.
 - Config file is now TOML, settings from the old INI file are kept.
 
