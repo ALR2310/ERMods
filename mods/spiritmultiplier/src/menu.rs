@@ -34,6 +34,8 @@ fn regen_mode_row() -> u8 {
 }
 
 static MENU: OnceLock<menu::Menu> = OnceLock::new();
+/// Green, so the notice stands out from the title screen's own white text.
+const UPDATE_NOTICE_COLOR: u32 = 0x5FD35F;
 
 static TEXT: Catalog = Catalog::new(&[
     ("english", include_str!("../locales/en.json")),
@@ -76,6 +78,12 @@ static WARP_STUCK_RANGE: NumberSetting =
 static LOG_FILE: Setting = Setting::flag("Logging.LogFile");
 
 fn build(b: &mut MenuBuilder) -> Result<(), String> {
+    // The host takes title-screen text only while the menu is registered.
+    if let Some(notice) = shared::update_check::notice(std::time::Duration::from_millis(1500))
+        && let Err(reason) = b.provider().add_title_text_bottom_left(&notice, UPDATE_NOTICE_COLOR)
+    {
+        shared::logger::log(&format!("Menu: update notice not shown ({reason})"));
+    }
     let page = b.submenu(b.root(), "Spirit Multiplier", &t("mod.help"))?;
 
     let count = b.submenu(page, &t("count.title"), &t("count.help"))?;
@@ -178,6 +186,7 @@ fn build(b: &mut MenuBuilder) -> Result<(), String> {
 
 /// Must start early: the host closes registration shortly after startup.
 pub fn start(hmodule: u64) {
+    shared::update_check::spawn("spiritmultiplier", "Spirit Multiplier", env!("CARGO_PKG_VERSION"));
     menu::start_saver(config::save, Some(saved));
     menu::spawn_menu(&MENU, hmodule, "spirit-multiplier", "Spirit Multiplier", build);
 }

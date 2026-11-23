@@ -13,11 +13,12 @@ pub struct Connection {
     pub(super) api: Api,
     pub(super) numeric_slider: bool,
     pub(super) color_picker: bool,
+    pub(super) title_text: bool,
 }
 
-/// Polls for the loaded `ERNativeUI.dll` and negotiates API 1.2, falling back to 1.1 (no numeric
-/// slider). `Err` with the reason if the host is missing, failed or not ready within `timeout`;
-/// callers log it and carry on without a menu.
+/// Polls for the loaded `ERNativeUI.dll` and negotiates API 1.3, falling back to 1.2 (no title
+/// text) and 1.1 (no numeric slider). `Err` with the reason if the host is missing, failed or not
+/// ready within `timeout`; callers log it and carry on without a menu.
 pub fn connect(timeout: Duration) -> Result<Connection, String> {
     let deadline = Instant::now() + timeout;
     let host_name = wide("ERNativeUI.dll\0");
@@ -34,12 +35,21 @@ pub fn connect(timeout: Duration) -> Result<Connection, String> {
             }
             // SAFETY: `ERUI_GetApi` has the `GetApiFn` signature (erui.h).
             let get_api: GetApiFn = unsafe { std::mem::transmute(symbol) };
-            let mut version = API_VERSION_1_2;
+            let mut version = API_VERSION_1_3;
             // SAFETY: `Api` holds integers and nullable function pointers, for which all-zero is valid.
             let mut api: Api = unsafe { std::mem::zeroed() };
-            api.size = API_V1_2_SIZE;
+            api.size = API_V1_3_SIZE;
             // SAFETY: `api` is writable and `api.size` tells the host how much it may fill.
             let mut status = unsafe { get_api(version, &mut api) };
+            if status == ERUI_UNSUPPORTED_VERSION {
+                // An API 1.2 host (ERNativeUI before 1.3).
+                version = API_VERSION_1_2;
+                // SAFETY: `Api` holds integers and nullable function pointers, for which all-zero is valid.
+                api = unsafe { std::mem::zeroed() };
+                api.size = API_V1_2_SIZE;
+                // SAFETY: `api` is writable and `api.size` tells the host how much it may fill.
+                status = unsafe { get_api(version, &mut api) };
+            }
             if status == ERUI_UNSUPPORTED_VERSION {
                 // An API 1.1 host (ERNativeUI before 1.2).
                 version = API_VERSION_1_1;
@@ -57,6 +67,7 @@ pub fn connect(timeout: Duration) -> Result<Connection, String> {
                         api,
                         numeric_slider: has_numeric_slider(&api),
                         color_picker: has_color_picker(&api),
+                        title_text: has_title_text(&api),
                     });
                 }
                 ERUI_HOST_FAILED => {
@@ -90,6 +101,7 @@ pub struct Provider {
     pub(super) root: PageHandle,
     pub(super) numeric_slider: bool,
     pub(super) color_picker: bool,
+    pub(super) title_text: bool,
     pub(super) committed: bool,
 }
 
@@ -128,12 +140,34 @@ impl Connection {
             root,
             numeric_slider: self.numeric_slider,
             color_picker: self.color_picker,
+            title_text: self.title_text,
             committed: false,
         })
     }
 }
 
 impl Provider {
+    /// One line of text at the bottom left of the title screen, in the color `rgb` (`0xRRGGBB`).
+    /// Must be called before [`Provider::commit`]. `Ok(false)` when the host cannot show title text.
+    pub fn add_title_text_bottom_left(&self, text: &str, rgb: u32) -> Result<bool, String> {
+        if !self.title_text {
+            return Ok(false);
+        }
+        let text = wide(text);
+        let desc = TitleScreenTextDesc {
+            size: std::mem::size_of::<TitleScreenTextDesc>() as u32,
+            flags: TITLE_TEXT_CUSTOM_COLOR,
+            text: Utf16View::of(&text),
+            color: Color::from_rgb(rgb),
+            corner: CORNER_BOTTOM_LEFT,
+            reserved: [0; 2],
+        };
+        // SAFETY: `has_title_text` checked the function pointer; the descriptor and the text it views outlive the call.
+        let status = unsafe { (self.api.add_title_screen_text.unwrap())(self.provider, &desc) };
+        check(status, "add_title_screen_text")?;
+        Ok(true)
+    }
+
     pub fn root_page(&self) -> PageHandle {
         self.root
     }

@@ -14,10 +14,18 @@ pub(super) const ERUI_UNSUPPORTED_VERSION: u32 = 4;
 
 pub(super) const API_VERSION_1_1: u32 = (1 << 16) | 1;
 pub(super) const API_VERSION_1_2: u32 = (1 << 16) | 2;
+pub(super) const API_VERSION_1_3: u32 = (1 << 16) | 3;
 pub(super) const CAP_TOGGLE: u64 = 1 << 0;
 pub(super) const CAP_SLIDER: u64 = 1 << 1;
 pub(super) const CAP_COLOR_PICKER: u64 = 1 << 12;
 pub(super) const CAP_NUMERIC_SLIDER: u64 = 1 << 16;
+pub(super) const CAP_TITLE_SCREEN_TEXT: u64 = 1 << 19;
+
+/// `ERUI_TITLE_SCREEN_TEXT_USE_CUSTOM_COLOR`.
+pub(super) const TITLE_TEXT_CUSTOM_COLOR: u32 = 1;
+
+/// `ERUI_TITLE_SCREEN_CORNER_BOTTOM_LEFT`.
+pub(super) const CORNER_BOTTOM_LEFT: u32 = 3;
 
 pub type RowHandle = u64;
 pub(super) type ProviderHandle = u64;
@@ -264,9 +272,21 @@ pub(super) struct ColorPickerDesc {
     pub(super) enabled: u32,
 }
 
+/// `ERUI_TitleScreenTextDesc` (API 1.3). Without the custom-color flag the line takes the title
+/// screen's own color.
+#[repr(C)]
+pub(super) struct TitleScreenTextDesc {
+    pub(super) size: u32,
+    pub(super) flags: u32,
+    pub(super) text: Utf16View,
+    pub(super) color: Color,
+    pub(super) corner: u32,
+    pub(super) reserved: [u32; 2],
+}
+
 pub(super) type Unused = Option<unsafe extern "C" fn()>;
 
-/// `ERUI_Api` (API 1.2). Field order is the ABI; entries this module does not call are opaque
+/// `ERUI_Api` (API 1.3). Field order is the ABI; entries this module does not call are opaque
 /// [`Unused`] pointers, so the table has the exact size the host expects.
 #[repr(C)]
 #[derive(Clone, Copy)]
@@ -374,12 +394,16 @@ pub(super) struct Api {
     pub(super) add_custom_slider: Unused,
     pub(super) set_custom_slider_index: Unused,
     pub(super) get_custom_slider_index: Unused,
+    pub(super) add_tab: Unused,
+    pub(super) add_title_screen_text:
+        Option<unsafe extern "C" fn(ProviderHandle, *const TitleScreenTextDesc) -> Status>,
 }
 
-// ERUI_API_V1_1_SIZE: 16-byte header + 38 function pointers; API 1.2 adds 6.
+// ERUI_API_V1_1_SIZE: 16-byte header + 38 function pointers; API 1.2 adds 6, API 1.3 adds 2.
 pub(super) const API_V1_1_SIZE: u32 = 16 + 38 * 8;
 pub(super) const API_V1_2_SIZE: u32 = 16 + 44 * 8;
-const _: () = assert!(std::mem::size_of::<Api>() == API_V1_2_SIZE as usize);
+pub(super) const API_V1_3_SIZE: u32 = 16 + 46 * 8;
+const _: () = assert!(std::mem::size_of::<Api>() == API_V1_3_SIZE as usize);
 
 pub(super) type GetApiFn = unsafe extern "C" fn(u32, *mut Api) -> Status;
 
@@ -416,7 +440,11 @@ pub(super) fn check(status: Status, what: &str) -> Result<(), String> {
 /// The checks the host's docs ask of a strict-C client: exact version and size, the capability
 /// bits, and every function pointer this module calls (they are `unwrap`ped later).
 pub(super) fn validate_api(api: &Api, version: u32) -> Result<(), String> {
-    let size = if version == API_VERSION_1_2 { API_V1_2_SIZE } else { API_V1_1_SIZE };
+    let size = match version {
+        API_VERSION_1_3 => API_V1_3_SIZE,
+        API_VERSION_1_2 => API_V1_2_SIZE,
+        _ => API_V1_1_SIZE,
+    };
     if api.api_version != version
         || api.size != size
         || api.capabilities & (CAP_TOGGLE | CAP_SLIDER) != (CAP_TOGGLE | CAP_SLIDER)
@@ -485,4 +513,11 @@ pub(super) fn has_numeric_slider(api: &Api) -> bool {
         && api.capabilities & CAP_NUMERIC_SLIDER != 0
         && api.add_numeric_slider.is_some()
         && api.set_numeric_slider_value.is_some()
+}
+
+/// Whether the negotiated table can show title-screen text (API 1.3).
+pub(super) fn has_title_text(api: &Api) -> bool {
+    api.api_version >= API_VERSION_1_3
+        && api.capabilities & CAP_TITLE_SCREEN_TEXT != 0
+        && api.add_title_screen_text.is_some()
 }

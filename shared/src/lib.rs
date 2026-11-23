@@ -20,6 +20,7 @@ pub mod player;
 pub mod reload;
 pub mod task;
 pub mod toml_config;
+pub mod update_check;
 
 use std::ffi::c_void;
 

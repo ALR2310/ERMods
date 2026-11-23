@@ -31,6 +31,8 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 MANIFEST = ROOT / ".local" / "manifest.json"
+# Public list of the latest version of each mod; the mods read it from the repository to tell players.
+VERSIONS = ROOT / "version.json"
 API = "https://api.nexusmods.com"
 USER_AGENT = "ermods-deploy"
 
@@ -203,7 +205,11 @@ def main():
         entry["deploys"].append({"version": version, "commit": commit, "file": str(chosen["id"]),
                                  "category": args.category})
     MANIFEST.write_text(json.dumps(manifest, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
-    if not main_file:
+    if main_file:
+        versions = json.loads(VERSIONS.read_text(encoding="utf-8")) if VERSIONS.exists() else {}
+        versions[args.crate] = version
+        VERSIONS.write_text(json.dumps(versions, indent=2) + "\n", encoding="utf-8", newline="\n")
+    else:
         print(f"published  https://www.nexusmods.com/eldenring/mods/{entry['id']}")
         return
     try:
