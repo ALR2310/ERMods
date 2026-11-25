@@ -1,0 +1,16 @@
+[
+  {"crate":"animcancel","id":11328,"internalId":"18610093304896","file":{"id":"8141178","name":"AnimCancel"}},
+  {"crate":"autopickup","id":11470,"internalId":"18610093305038","file":{"id":"8239932","name":"AutoPickup"}},
+  {"crate":"autoregen","id":10548,"internalId":"18610093304116","file":{"id":"7762908","name":"AutoRegen"}},
+  {"crate":"dropmultiplier","id":11075,"internalId":"18610093304643","file":{"id":"8003106","name":"DropMultiplier"}},
+  {"crate":"fasterrevival","id":11160,"internalId":"18610093304728","file":{"id":"8042079","name":"FasterRevival"}},
+  {"crate":"infiniteailment","id":11087,"internalId":"18610093304655","file":{"id":"8008011","name":"InfiniteAilment"}},
+  {"crate":"journeyhud","id":11543,"internalId":"18610093305111","file":{"id":"8285250","name":"JourneyHUD"}},
+  {"crate":"passiverunes","id":10528,"internalId":"18610093304096","file":{"id":"7753590","name":"PassiveRunes"}},
+  {"crate":"risearcher","id":5807,"internalId":"18610093299375","file":{"id":"2605858","name":"RiseArcher"}},
+  {"crate":"runemultiplier","id":10630,"internalId":"18610093304198","file":{"id":"7820709","name":"RuneMultiplier"}},
+  {"crate":"soulsteleport","id":11119,"internalId":"18610093304687","file":{"id":"8024916","name":"SoulsTeleport"}},
+  {"crate":"speedmultiplier","id":11173,"internalId":"18610093304741","file":{"id":"8049852","name":"SpeedMultiplier"}},
+  {"crate":"spiritmultiplier","id":11168,"internalId":"18610093304736","file":{"id":"8047548","name":"SpiritMultiplier"}},
+  {"crate":"weightmultiplier","id":10549,"internalId":"18610093304117","file":{"id":"7762944","name":"ReductionWeight"}}
+]

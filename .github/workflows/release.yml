@@ -1,0 +1,147 @@
+name: Release mod
+run-name: Release ${{ github.ref_name }}
+
+on:
+  push:
+    tags: ['*-v*.*.*', 'test/*-v*.*.*']
+
+permissions:
+  contents: write
+
+concurrency:
+  group: release-${{ github.ref }}
+
+jobs:
+  release:
+    if: ${{ !github.event.deleted }}
+    runs-on: windows-latest
+    env:
+      RELEASE_TEST: ${{ startsWith(github.ref, 'refs/tags/test/') }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Check Nexus credentials
+        if: env.RELEASE_TEST != 'true'
+        shell: pwsh
+        env:
+          NEXUS_API_KEY: ${{ secrets.NEXUS_API_KEY }}
+        run: |
+          if (-not $env:NEXUS_API_KEY) { throw 'Set the NEXUS_API_KEY Actions secret.' }
+
+      - name: Validate tag and extract release notes
+        id: package
+        shell: pwsh
+        run: |
+          $tag = $env:GITHUB_REF_NAME
+          if ($tag -cnotmatch '^(?:test/)?(?<crate>[a-z0-9-]+)-v(?<version>\d+\.\d+\.\d+)$') {
+            throw "Expected a tag like journeyhud-v1.6.0 or test/journeyhud-v1.6.0, got '$tag'."
+          }
+          $crate = $Matches.crate
+          $version = $Matches.version
+
+          $targets = Get-Content -Raw .github/nexus-mods.json | ConvertFrom-Json
+          if (-not ($targets | Where-Object crate -eq $crate)) {
+            throw "'$crate' has no configured Nexus mod."
+          }
+          $manifest = python -c "import json, sys, tomllib; print(json.dumps(tomllib.load(open(sys.argv[1], 'rb'))))" "mods/$crate/Cargo.toml" |
+            ConvertFrom-Json
+          if ($LASTEXITCODE -ne 0) { throw "Cannot read the Cargo manifest for '$crate'." }
+          $mod = $manifest.lib.name
+          $changelog = "mods/$crate/CHANGELOG.md"
+          if (-not $mod -or $manifest.lib.'crate-type' -notcontains 'cdylib' -or -not (Test-Path -LiteralPath $changelog)) {
+            throw "'$crate' is not a releasable mod."
+          }
+          if ($version -ne $manifest.package.version) {
+            throw "Tag version '$version' does not match '$crate' version '$($manifest.package.version)'."
+          }
+
+          $text = Get-Content -Raw -LiteralPath $changelog
+          $heading = [regex]::Escape($version)
+          $section = [regex]::Match($text, "(?ms)^## \[$heading\][^\r\n]*\r?\n(.*?)(?=^## |\z)")
+          $notes = $section.Groups[1].Value
+          if ($notes -notmatch '(?m)^- \S') { throw "Missing changelog bullets for [$version] in '$changelog'." }
+
+          $notesPath = Join-Path $env:RUNNER_TEMP 'release-notes.md'
+          Set-Content -LiteralPath $notesPath -Value $notes.Trim() -Encoding utf8
+          "crate=$crate", "mod=$mod", "version=$version", "asset=$mod-$version.zip", "notes=$notesPath" |
+            Add-Content -LiteralPath $env:GITHUB_OUTPUT -Encoding utf8
+
+      - name: Check for an existing GitHub Release
+        id: github-release
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          $result = gh release view "$env:GITHUB_REF_NAME" --json isDraft 2>&1
+          if ($LASTEXITCODE -eq 0) {
+            if (($result | ConvertFrom-Json).isDraft) { throw 'This tag already has a draft release.' }
+            'exists=true' | Add-Content -LiteralPath $env:GITHUB_OUTPUT
+          } elseif ($result -notmatch '^release not found$') {
+            throw ($result | Out-String)
+          }
+          exit 0
+
+      - uses: dtolnay/rust-toolchain@stable
+        if: steps.github-release.outputs.exists != 'true'
+
+      - name: Build release archive
+        id: build
+        if: steps.github-release.outputs.exists != 'true'
+        shell: pwsh
+        env:
+          RELEASE_CRATE: ${{ steps.package.outputs.crate }}
+          RELEASE_MOD: ${{ steps.package.outputs.mod }}
+          RELEASE_ASSET: ${{ steps.package.outputs.asset }}
+          RELEASE_NOTES: ${{ steps.package.outputs.notes }}
+        run: |
+          ./scripts/build-mod.ps1 -Mod $env:RELEASE_MOD -Zip
+          $zip = "builds/$env:RELEASE_CRATE/$env:RELEASE_ASSET"
+          if (-not (Test-Path -LiteralPath $zip -PathType Leaf)) { throw "Missing '$zip'." }
+          "path=$zip" | Add-Content -LiteralPath $env:GITHUB_OUTPUT
+
+      - name: Publish to GitHub
+        if: steps.github-release.outputs.exists != 'true'
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TITLE: ${{ steps.package.outputs.mod }} ${{ steps.package.outputs.version }}
+          RELEASE_ZIP: ${{ steps.build.outputs.path }}
+          RELEASE_NOTES: ${{ steps.package.outputs.notes }}
+        run: |
+          $options = @()
+          if ($env:RELEASE_TEST -eq 'true') { $options = @('--prerelease', '--latest=false') }
+          gh release create "$env:GITHUB_REF_NAME" "$env:RELEASE_ZIP" --verify-tag `
+            --title "$env:RELEASE_TITLE" --notes-file "$env:RELEASE_NOTES" @options
+
+      - name: Download published archive
+        id: download
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_ASSET: ${{ steps.package.outputs.asset }}
+        run: |
+          $dir = Join-Path $env:RUNNER_TEMP 'release-archive'
+          gh release download "$env:GITHUB_REF_NAME" --pattern "$env:RELEASE_ASSET" --dir "$dir"
+          if ($LASTEXITCODE -ne 0) { throw 'Could not download the published GitHub Release archive.' }
+          "archive=$(Join-Path $dir $env:RELEASE_ASSET)" | Add-Content -LiteralPath $env:GITHUB_OUTPUT
+          "[GitHub Release]($env:GITHUB_SERVER_URL/$env:GITHUB_REPOSITORY/releases/tag/$env:GITHUB_REF_NAME)" |
+            Add-Content -LiteralPath $env:GITHUB_STEP_SUMMARY
+
+      - name: Publish to Nexus and verify
+        if: env.RELEASE_TEST != 'true'
+        shell: pwsh
+        env:
+          NEXUS_API_KEY: ${{ secrets.NEXUS_API_KEY }}
+          RELEASE_CRATE: ${{ steps.package.outputs.crate }}
+          RELEASE_VERSION: ${{ steps.package.outputs.version }}
+          RELEASE_ARCHIVE: ${{ steps.download.outputs.archive }}
+        run: |
+          python -u scripts/nexus-deploy.py "$env:RELEASE_CRATE" --version "$env:RELEASE_VERSION" --archive "$env:RELEASE_ARCHIVE" |
+            Tee-Object -Variable nexusLog
+          if ($LASTEXITCODE -ne 0) { throw 'Nexus release failed. Check the script error and published state before retrying.' }
+          $nexusLog | Add-Content -LiteralPath $env:GITHUB_STEP_SUMMARY
