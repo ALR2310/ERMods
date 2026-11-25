@@ -158,15 +158,22 @@ def upload(key, zip_path, md5_hex, md5_b64):
     raise Fail("the upload did not become available in 3 minutes")
 
 
+def file_description(lines):
+    changelog = "\n".join(lines)
+    if len(changelog) <= 255:
+        return changelog
+    return ("See the changelog for details.\n\n"
+            "Mod files may be detected as false positives by antivirus software.")
+
+
 def attach_version(key, target_id, name, version, category, zip_path, lines, *, new_file=False):
     digest = hashlib.md5(zip_path.read_bytes()).digest()
     upload_id = upload(key, zip_path, digest.hex(), base64.b64encode(digest).decode())
     main_file = category == "main"
-    changelog = "\n".join(lines)
     body = {
         "upload_id": upload_id, "name": name, "version": version, "file_category": category,
         "update_mod_version": main_file, "primary_mod_manager_download": main_file,
-        "description": changelog if len(changelog) <= 255 else lines[0][:255],
+        "description": file_description(lines),
     }
     url = f"{API}/v3/mod-files"
     if new_file:
@@ -261,6 +268,8 @@ def nexus_release(entry, version, lines, key, archive, *, test_name=None):
             time.sleep(3)
     if notes != lines:
         raise Fail(f"Nexus changelog [{version}] does not match the repository")
+    if archive and released["description"] != file_description(lines):
+        raise Fail(f"Nexus file description for {version} does not match the release")
 
 
 def main():
