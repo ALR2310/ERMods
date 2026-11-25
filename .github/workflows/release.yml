@@ -64,8 +64,12 @@ jobs:
         shell: pwsh
         run: |
           $tag = $env:GITHUB_REF_NAME
-          if ($tag -cnotmatch '^(?:test(?:-nexus)?/)?(?<crate>[a-z0-9-]+)-v(?<version>\d+\.\d+\.\d+)$') {
+          if ($tag -cnotmatch '^(?<releaseTag>(?<mode>test(?:-nexus)?/)?(?<crate>[a-z0-9-]+)-v(?<version>\d+\.\d+\.\d+))(?:-retry[1-9][0-9]*)?$') {
             throw "Expected <crate>-v<version>, optionally prefixed with test/ or test-nexus/, got '$tag'."
+          }
+          $releaseTag = $Matches.releaseTag
+          if ($releaseTag -cne $tag -and $Matches.mode -cne 'test-nexus/') {
+            throw 'Retry tags are supported for Nexus tests only.'
           }
           $crate = $Matches.crate
           $version = $Matches.version
@@ -94,7 +98,7 @@ jobs:
 
           $notesPath = Join-Path $env:RUNNER_TEMP 'release-notes.md'
           Set-Content -LiteralPath $notesPath -Value $notes.Trim() -Encoding utf8
-          "crate=$crate", "mod=$mod", "version=$version", "asset=$mod-$version.zip", "notes=$notesPath" |
+          "crate=$crate", "mod=$mod", "version=$version", "asset=$mod-$version.zip", "notes=$notesPath", "release_tag=$releaseTag" |
             Add-Content -LiteralPath $env:GITHUB_OUTPUT -Encoding utf8
 
       - name: Check for an existing GitHub Release
@@ -102,13 +106,16 @@ jobs:
         shell: pwsh
         env:
           GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ steps.package.outputs.release_tag }}
         run: |
-          $result = gh release view "$env:GITHUB_REF_NAME" --json isDraft 2>&1
+          $result = gh release view "$env:RELEASE_TAG" --json isDraft 2>&1
           if ($LASTEXITCODE -eq 0) {
             if (($result | ConvertFrom-Json).isDraft) { throw 'This tag already has a draft release.' }
             'exists=true' | Add-Content -LiteralPath $env:GITHUB_OUTPUT
           } elseif ($result -notmatch '^release not found$') {
             throw ($result | Out-String)
+          } elseif ($env:RELEASE_TAG -cne $env:GITHUB_REF_NAME) {
+            throw "The original test prerelease '$env:RELEASE_TAG' is required to retry the Nexus upload."
           }
           exit 0
 
@@ -155,13 +162,14 @@ jobs:
         shell: pwsh
         env:
           GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ steps.package.outputs.release_tag }}
           RELEASE_ASSET: ${{ steps.package.outputs.asset }}
         run: |
           $dir = Join-Path $env:RUNNER_TEMP 'release-archive'
-          gh release download "$env:GITHUB_REF_NAME" --pattern "$env:RELEASE_ASSET" --dir "$dir"
+          gh release download "$env:RELEASE_TAG" --pattern "$env:RELEASE_ASSET" --dir "$dir"
           if ($LASTEXITCODE -ne 0) { throw 'Could not download the published GitHub Release archive.' }
           "archive=$(Join-Path $dir $env:RELEASE_ASSET)" | Add-Content -LiteralPath $env:GITHUB_OUTPUT
-          "[GitHub Release]($env:GITHUB_SERVER_URL/$env:GITHUB_REPOSITORY/releases/tag/$env:GITHUB_REF_NAME)" |
+          "[GitHub Release]($env:GITHUB_SERVER_URL/$env:GITHUB_REPOSITORY/releases/tag/$env:RELEASE_TAG)" |
             Add-Content -LiteralPath $env:GITHUB_STEP_SUMMARY
 
       - name: Publish to Nexus and verify

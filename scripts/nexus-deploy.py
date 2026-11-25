@@ -171,9 +171,9 @@ def attach_version(key, target_id, name, version, category, zip_path, lines, *, 
     url = f"{API}/v3/mod-files"
     if new_file:
         body["mod_id"] = target_id
-        return call("POST", url, key, body=body)["data"]["id"]
-    call("POST", f"{url}/{target_id}/versions", key, body=body)
-    return target_id
+    else:
+        url = f"{url}/{target_id}/versions"
+    call("POST", url, key, body=body)
 
 
 def nexus_file_version(key, url, version):
@@ -181,6 +181,13 @@ def nexus_file_version(key, url, version):
     matches = [item for item in versions if item["version"] == version]
     if len(matches) > 1:
         raise Fail(f"Nexus mod file contains multiple versions named {version}")
+    return matches[0] if matches else None
+
+
+def nexus_test_file(files, name):
+    matches = [file for file in files if file["name"] == name]
+    if len(matches) > 1:
+        raise Fail(f"Nexus test mod contains multiple files named {name}")
     return matches[0] if matches else None
 
 
@@ -193,10 +200,7 @@ def nexus_release(entry, version, lines, key, archive, *, test_name=None):
     files = call("GET", f"{mod_url}/files", key)["data"]["mod_files"]
     if test_name:
         name = test_name
-        matching_files = [file for file in files if file["name"] == name]
-        if len(matching_files) > 1:
-            raise Fail(f"Nexus test mod contains multiple files named {name}")
-        chosen = matching_files[0] if matching_files else None
+        chosen = nexus_test_file(files, name)
     else:
         chosen, name = pick_file(entry, files, None, True)
     if chosen and not chosen["is_active"]:
@@ -215,12 +219,19 @@ def nexus_release(entry, version, lines, key, archive, *, test_name=None):
     released = nexus_file_version(key, file_url, version) if file_id else None
     if not released and archive:
         print(f"Uploading {archive.name} to Nexus mod {entry['id']}", flush=True)
-        file_id = attach_version(key, file_id or entry["internalId"], name, version, "main", archive,
-                                 lines, new_file=file_id is None)
-        file_url = f"{API}/v3/mod-files/{file_id}/versions"
+        attach_version(key, file_id or entry["internalId"], name, version, "main", archive,
+                       lines, new_file=file_id is None)
         print(f"Nexus accepted version {version}; checking the published file", flush=True)
         for _ in range(5):
-            released = nexus_file_version(key, file_url, version)
+            if not file_id:
+                # The create response identifies the new version. The list gives its file group.
+                files = call("GET", f"{mod_url}/files", key)["data"]["mod_files"]
+                chosen = nexus_test_file(files, name)
+                if chosen:
+                    file_id = chosen["id"]
+                    file_url = f"{API}/v3/mod-files/{file_id}/versions"
+            if file_id:
+                released = nexus_file_version(key, file_url, version)
             mod = call("GET", mod_url, key)["data"]
             if released and mod["version"] == version:
                 break
@@ -230,8 +241,11 @@ def nexus_release(entry, version, lines, key, archive, *, test_name=None):
     if test_name and mod["status"] != "not_published":
         raise Fail("The Nexus test mod is no longer unpublished")
     primary = mod["main_file_version"] or {}
+    is_primary = released.get("is_primary") if test_name else (
+        primary.get("id") == released["id"] and primary.get("is_primary")
+    )
     if (released["category"] != "main" or mod["version"] != version
-            or primary.get("id") != released["id"] or not primary.get("is_primary")):
+            or not is_primary):
         raise Fail(f"Nexus has {version}, but it is not the active primary main release")
     if archive and (released["size_in_bytes"] != archive.stat().st_size or released["name"] != name):
         raise Fail(f"Nexus version {version} does not match the release archive size or name")
