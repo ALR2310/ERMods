@@ -268,8 +268,10 @@ def nexus_release(entry, version, lines, key, archive, *, test_name=None):
             time.sleep(3)
     if notes != lines:
         raise Fail(f"Nexus changelog [{version}] does not match the repository")
-    if archive and released["description"] != file_description(lines):
-        raise Fail(f"Nexus file description for {version} does not match the release")
+    if archive:
+        description = re.sub(r"<br\s*/?>", "\n", released["description"] or "", flags=re.I)
+        if description.splitlines() != file_description(lines).splitlines():
+            raise Fail(f"Nexus file description for {version} does not match the release")
 
 
 def main():
