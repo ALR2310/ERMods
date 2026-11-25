@@ -3,7 +3,13 @@ run-name: Release ${{ github.ref_name }}
 
 on:
   push:
-    tags: ['*-v*.*.*', 'test/*-v*.*.*']
+    tags: ['*-v*.*.*', 'test/*-v*.*.*', 'test-nexus/*-v*.*.*']
+  workflow_dispatch:
+    inputs:
+      mod:
+        description: DLL name of the mod to build to warm the release cache
+        default: JourneyHUD
+        required: true
 
 permissions:
   contents: write
@@ -12,11 +18,31 @@ concurrency:
   group: release-${{ github.ref }}
 
 jobs:
+  warm-cache:
+    if: github.event_name == 'workflow_dispatch' && github.ref_name == github.event.repository.default_branch
+    runs-on: windows-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: release
+      - name: Build to warm the release cache
+        shell: pwsh
+        env:
+          CACHE_MOD: ${{ inputs.mod }}
+        run: ./scripts/build-mod.ps1 -Mod $env:CACHE_MOD
+
   release:
-    if: ${{ !github.event.deleted }}
+    if: github.event_name == 'push' && !github.event.deleted
     runs-on: windows-latest
     env:
       RELEASE_TEST: ${{ startsWith(github.ref, 'refs/tags/test/') }}
+      RELEASE_NEXUS_TEST: ${{ startsWith(github.ref, 'refs/tags/test-nexus/') }}
     steps:
       - uses: actions/checkout@v4
         with:
@@ -38,8 +64,8 @@ jobs:
         shell: pwsh
         run: |
           $tag = $env:GITHUB_REF_NAME
-          if ($tag -cnotmatch '^(?:test/)?(?<crate>[a-z0-9-]+)-v(?<version>\d+\.\d+\.\d+)$') {
-            throw "Expected a tag like journeyhud-v1.6.0 or test/journeyhud-v1.6.0, got '$tag'."
+          if ($tag -cnotmatch '^(?:test(?:-nexus)?/)?(?<crate>[a-z0-9-]+)-v(?<version>\d+\.\d+\.\d+)$') {
+            throw "Expected <crate>-v<version>, optionally prefixed with test/ or test-nexus/, got '$tag'."
           }
           $crate = $Matches.crate
           $version = $Matches.version
@@ -88,6 +114,10 @@ jobs:
 
       - uses: dtolnay/rust-toolchain@stable
         if: steps.github-release.outputs.exists != 'true'
+      - uses: Swatinem/rust-cache@v2
+        if: steps.github-release.outputs.exists != 'true'
+        with:
+          shared-key: release
 
       - name: Build release archive
         id: build
@@ -114,7 +144,9 @@ jobs:
           RELEASE_NOTES: ${{ steps.package.outputs.notes }}
         run: |
           $options = @()
-          if ($env:RELEASE_TEST -eq 'true') { $options = @('--prerelease', '--latest=false') }
+          if ($env:RELEASE_TEST -eq 'true' -or $env:RELEASE_NEXUS_TEST -eq 'true') {
+            $options = @('--prerelease', '--latest=false')
+          }
           gh release create "$env:GITHUB_REF_NAME" "$env:RELEASE_ZIP" --verify-tag `
             --title "$env:RELEASE_TITLE" --notes-file "$env:RELEASE_NOTES" @options
 
@@ -141,7 +173,9 @@ jobs:
           RELEASE_VERSION: ${{ steps.package.outputs.version }}
           RELEASE_ARCHIVE: ${{ steps.download.outputs.archive }}
         run: |
-          python -u scripts/nexus-deploy.py "$env:RELEASE_CRATE" --version "$env:RELEASE_VERSION" --archive "$env:RELEASE_ARCHIVE" |
+          $options = @()
+          if ($env:RELEASE_NEXUS_TEST -eq 'true') { $options = @('--test-nexus') }
+          python -u scripts/nexus-deploy.py "$env:RELEASE_CRATE" --version "$env:RELEASE_VERSION" --archive "$env:RELEASE_ARCHIVE" @options |
             Tee-Object -Variable nexusLog
           if ($LASTEXITCODE -ne 0) { throw 'Nexus release failed. Check the script error and published state before retrying.' }
           $nexusLog | Add-Content -LiteralPath $env:GITHUB_STEP_SUMMARY

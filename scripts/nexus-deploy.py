@@ -10,6 +10,7 @@ in .local/manifest.json (id, internalId, crate, deploys).
 
 Use `--archive PATH` to publish the existing GitHub Release asset using .github/nexus-mods.json,
 or `--verify-only` to read back the released file, mod version and changelog from Nexus.
+`--test-nexus` directs either mode to the unpublished test mod.
 
 The zip goes to the main mod file of the manifest. `--category optional` (or `miscellaneous`) puts it
 on another mod file instead (`--file-id` is then required): it is not the mod manager's default download,
@@ -36,6 +37,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 MANIFEST = ROOT / ".local" / "manifest.json"
 NEXUS_MODS = ROOT / ".github" / "nexus-mods.json"
+NEXUS_TEST_MOD = {"id": 11735, "internalId": "18610093305303"}
 # Public list of the latest version of each mod; the mods read it from the repository to tell players.
 VERSIONS = ROOT / "version.json"
 API = "https://api.nexusmods.com"
@@ -156,16 +158,22 @@ def upload(key, zip_path, md5_hex, md5_b64):
     raise Fail("the upload did not become available in 3 minutes")
 
 
-def attach_version(key, file_id, name, version, category, zip_path, lines):
+def attach_version(key, target_id, name, version, category, zip_path, lines, *, new_file=False):
     digest = hashlib.md5(zip_path.read_bytes()).digest()
     upload_id = upload(key, zip_path, digest.hex(), base64.b64encode(digest).decode())
     main_file = category == "main"
     changelog = "\n".join(lines)
-    call("POST", f"{API}/v3/mod-files/{file_id}/versions", key, body={
+    body = {
         "upload_id": upload_id, "name": name, "version": version, "file_category": category,
         "update_mod_version": main_file, "primary_mod_manager_download": main_file,
         "description": changelog if len(changelog) <= 255 else lines[0][:255],
-    })
+    }
+    url = f"{API}/v3/mod-files"
+    if new_file:
+        body["mod_id"] = target_id
+        return call("POST", url, key, body=body)["data"]["id"]
+    call("POST", f"{url}/{target_id}/versions", key, body=body)
+    return target_id
 
 
 def nexus_file_version(key, url, version):
@@ -176,15 +184,25 @@ def nexus_file_version(key, url, version):
     return matches[0] if matches else None
 
 
-def nexus_release(entry, version, lines, key, archive):
+def nexus_release(entry, version, lines, key, archive, *, test_name=None):
     mod_url = f"{API}/v3/mods/{entry['internalId']}"
     notes_url = f"{API}/v1/games/eldenring/mods/{entry['id']}/changelogs.json"
-    files = call("GET", f"{mod_url}/files", key)["data"]["mod_files"]
-    chosen, name = pick_file(entry, files, None, True)
-    if not chosen["is_active"]:
-        raise Fail(f"Nexus file {chosen['id']} is inactive")
-    file_url = f"{API}/v3/mod-files/{chosen['id']}/versions"
     mod = call("GET", mod_url, key)["data"]
+    if test_name and (mod["status"] != "not_published" or str(mod["game_scoped_id"]) != str(entry["id"])):
+        raise Fail("The Nexus test target must be the configured unpublished mod")
+    files = call("GET", f"{mod_url}/files", key)["data"]["mod_files"]
+    if test_name:
+        name = test_name
+        matching_files = [file for file in files if file["name"] == name]
+        if len(matching_files) > 1:
+            raise Fail(f"Nexus test mod contains multiple files named {name}")
+        chosen = matching_files[0] if matching_files else None
+    else:
+        chosen, name = pick_file(entry, files, None, True)
+    if chosen and not chosen["is_active"]:
+        raise Fail(f"Nexus file {chosen['id']} is inactive")
+    file_id = chosen["id"] if chosen else None
+    file_url = f"{API}/v3/mod-files/{file_id}/versions"
     current = mod["version"]
     if archive and re.fullmatch(r"[0-9]+\.[0-9]+\.[0-9]+", current or ""):
         if tuple(map(int, current.split("."))) > tuple(map(int, version.split("."))):
@@ -194,10 +212,12 @@ def nexus_release(entry, version, lines, key, archive):
     notes = call("GET", notes_url, key, headers=uncached).get(version, [])
     if notes and notes != lines:
         raise Fail(f"Nexus changelog [{version}] differs from the repository")
-    released = nexus_file_version(key, file_url, version)
+    released = nexus_file_version(key, file_url, version) if file_id else None
     if not released and archive:
-        print(f"Uploading {archive.name} to Nexus file {chosen['id']}", flush=True)
-        attach_version(key, chosen["id"], name, version, "main", archive, lines)
+        print(f"Uploading {archive.name} to Nexus mod {entry['id']}", flush=True)
+        file_id = attach_version(key, file_id or entry["internalId"], name, version, "main", archive,
+                                 lines, new_file=file_id is None)
+        file_url = f"{API}/v3/mod-files/{file_id}/versions"
         print(f"Nexus accepted version {version}; checking the published file", flush=True)
         for _ in range(5):
             released = nexus_file_version(key, file_url, version)
@@ -206,7 +226,9 @@ def nexus_release(entry, version, lines, key, archive):
                 break
             time.sleep(3)
     if not released:
-        raise Fail(f"Nexus file {chosen['id']} does not contain version {version}")
+        raise Fail(f"Nexus mod {entry['id']} does not contain file {name} version {version}")
+    if test_name and mod["status"] != "not_published":
+        raise Fail("The Nexus test mod is no longer unpublished")
     primary = mod["main_file_version"] or {}
     if (released["category"] != "main" or mod["version"] != version
             or primary.get("id") != released["id"] or not primary.get("is_primary")):
@@ -237,9 +259,12 @@ def main():
     mode = parser.add_mutually_exclusive_group()
     mode.add_argument("--archive", type=Path, help="publish an existing GitHub Release ZIP")
     mode.add_argument("--verify-only", action="store_true", help="verify the Nexus main release")
+    parser.add_argument("--test-nexus", action="store_true", help="use the unpublished Nexus test mod")
     args = parser.parse_args()
 
     github_release = args.archive is not None or args.verify_only
+    if args.test_nexus and not github_release:
+        parser.error("--test-nexus requires --archive or --verify-only")
     if github_release and (args.category != "main" or args.file_id or args.dry_run):
         parser.error("--archive and --verify-only use the configured main Nexus file")
     manifest_path = NEXUS_MODS if github_release else MANIFEST
@@ -257,8 +282,9 @@ def main():
         if args.archive:
             if args.archive.name != f"{lib}-{version}.zip" or not args.archive.is_file():
                 raise Fail(f"Expected the existing {lib}-{version}.zip release archive")
-        nexus_release(entry, version, lines, key, args.archive)
-        print(f"Verified Nexus {version}: https://www.nexusmods.com/eldenring/mods/{entry['id']}")
+        target = NEXUS_TEST_MOD if args.test_nexus else entry
+        nexus_release(target, version, lines, key, args.archive, test_name=lib if args.test_nexus else None)
+        print(f"Verified Nexus {version}: https://www.nexusmods.com/eldenring/mods/{target['id']}")
         return
 
     main_file = args.category == "main"
