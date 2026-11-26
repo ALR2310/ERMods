@@ -2,7 +2,8 @@
 //! it, so a mod can change a menu movie without shipping the file. The game's
 //! file opener is only ever reached through a function-pointer slot in the exe's
 //! data, so the slot is repointed instead of hooking the function (which
-//! ERNativeUI does): both can coexist. Design and checks: `shared/docs/gfx.md`.
+//! ERNativeUI does): both can coexist. Several DLLs of ours can each edit a movie: they chain, each
+//! detour calling what its slot held before. Design and checks: `shared/docs/gfx.md`.
 
 use std::ffi::c_void;
 use std::panic::{AssertUnwindSafe, catch_unwind};
@@ -43,6 +44,7 @@ struct Target {
     edit: Edit,
 }
 
+/// What the slots held before this DLL's detour: the opener, or the detour of another DLL of ours.
 static ORIGINAL: AtomicUsize = AtomicUsize::new(0);
 static TARGET: OnceLock<Target> = OnceLock::new();
 /// The edited movie, built once and kept for the process lifetime (Scaleform
@@ -50,12 +52,72 @@ static TARGET: OnceLock<Target> = OnceLock::new();
 static REPLACEMENT: OnceLock<Option<&'static [u8]>> = OnceLock::new();
 static PUBLISH: Mutex<()> = Mutex::new(());
 
+#[link(name = "kernel32")]
+unsafe extern "system" {
+    fn CreateMutexA(attrs: *const c_void, initial_owner: i32, name: *const u8) -> *mut c_void;
+    fn WaitForSingleObject(handle: *mut c_void, milliseconds: u32) -> u32;
+    fn ReleaseMutex(handle: *mut c_void) -> i32;
+    fn GetCurrentProcessId() -> u32;
+    fn SetEnvironmentVariableA(name: *const u8, value: *const u8) -> i32;
+}
+
+/// `<opener>:<slot>,<slot>...` in hex, set by the first DLL that scanned for the slots. Once a DLL has
+/// repointed them they no longer hold the opener, so the DLLs after it cannot find them by value.
+const SLOTS_VAR: &str = "ERMODS_GFX_OPENER_SLOTS";
+
+/// Process-wide lock so two DLLs do not read and repoint the slots at the same time.
+struct InstallLock(*mut c_void);
+
+impl InstallLock {
+    fn acquire() -> Self {
+        // SAFETY: plain Win32 calls with a NUL-terminated name and the handle this struct owns.
+        let name = format!("Local\\ERMods_GfxHook_{}\0", unsafe { GetCurrentProcessId() });
+        // SAFETY: as above.
+        let handle = unsafe { CreateMutexA(std::ptr::null(), 0, name.as_ptr()) };
+        if !handle.is_null() {
+            // SAFETY: as above.
+            unsafe { WaitForSingleObject(handle, 10_000) };
+        }
+        Self(handle)
+    }
+}
+
+impl Drop for InstallLock {
+    fn drop(&mut self) {
+        if !self.0.is_null() {
+            // SAFETY: the mutex this struct owns, acquired in `acquire`.
+            unsafe { ReleaseMutex(self.0) };
+        }
+    }
+}
+
+/// The slots another DLL of ours published for this `opener`, empty when there are none.
+fn published_slots(opener: usize) -> Vec<*mut usize> {
+    let Ok(text) = std::env::var(SLOTS_VAR) else { return Vec::new() };
+    let Some((owner, list)) = text.split_once(':') else { return Vec::new() };
+    if usize::from_str_radix(owner, 16) != Ok(opener) {
+        return Vec::new();
+    }
+    list.split(',')
+        .filter_map(|slot| usize::from_str_radix(slot, 16).ok())
+        .map(|slot| slot as *mut usize)
+        .collect()
+}
+
+fn publish_slots(opener: usize, slots: &[*mut usize]) {
+    let list: Vec<String> = slots.iter().map(|&slot| format!("{:X}", slot as usize)).collect();
+    let value = format!("{opener:X}:{}\0", list.join(","));
+    let name = format!("{SLOTS_VAR}\0");
+    // SAFETY: both strings are NUL-terminated.
+    unsafe { SetEnvironmentVariableA(name.as_ptr(), value.as_ptr()) };
+}
+
 /// Repoints the opener's slot so the movie whose path ends in `file_name`
 /// (case-insensitive) is replaced by `edit(original bytes)` when it is `Some`.
 /// A file that a mod loader serves under a path of its own (`\\me3...`) has lost
 /// its name, so there the movie is the one whose bytes contain `marker`.
-/// One movie per DLL. `false` (nothing changed) if the opener or its slot isn't
-/// found, or this was called before.
+/// One movie per DLL. DLLs of ours that edit the same movie chain: each edits what the one before left.
+/// `false` (nothing changed) if the opener or its slot isn't found, or this was called before.
 pub fn install(file_name: &'static str, marker: &'static [u8], edit: Edit) -> bool {
     if TARGET.set(Target { file_name, marker, edit }).is_err() {
         return false;
@@ -68,22 +130,35 @@ pub fn install(file_name: &'static str, marker: &'static [u8], edit: Edit) -> bo
         logger::error("Movie: file opener pattern not found");
         return false;
     };
-    let opener = anchor.wrapping_sub(OPENER_OFFSET);
-    let slots = memscan::find_data_pointers(opener as usize);
+    let opener = anchor.wrapping_sub(OPENER_OFFSET) as usize;
+    let _lock = InstallLock::acquire();
+    let mut slots = published_slots(opener);
     if slots.is_empty() {
-        logger::error("Movie: file opener slot not found");
-        return false;
+        slots = memscan::find_data_pointers(opener);
+        if slots.is_empty() {
+            logger::error(
+                "Movie: file opener slot not found (an older build of another mod may hold it)",
+            );
+            return false;
+        }
+        publish_slots(opener, &slots);
     }
-    ORIGINAL.store(opener as usize, Ordering::Release);
+    let Some(previous) = memscan::read_safe::<usize>(slots[0] as usize) else {
+        logger::error("Movie: file opener slot unreadable");
+        return false;
+    };
+    ORIGINAL.store(previous, Ordering::Release);
     let detour = open_detour as OpenFn as usize;
     let swapped = slots
         .iter()
+        .filter(|&&slot| memscan::read_safe::<usize>(slot as usize) == Some(previous))
         // SAFETY: `slot` is an aligned pointer-sized cell of the exe image.
         .filter(|&&slot| unsafe {
             codepatch::overwrite_bytes(slot as *mut u8, &detour.to_le_bytes())
         })
         .count();
-    logger::log(&format!("Movie: opener slot swapped ({swapped}/{})", slots.len()));
+    let chained = if previous == opener { "" } else { ", after another hook" };
+    logger::log(&format!("Movie: opener slot swapped ({swapped}/{}{chained})", slots.len()));
     swapped > 0
 }
 
@@ -93,7 +168,7 @@ unsafe extern "system" fn open_detour(
     flags: i32,
     mode: i32,
 ) -> *mut c_void {
-    // SAFETY: `ORIGINAL` holds the opener found by `install`, stored before any slot was swapped.
+    // SAFETY: `ORIGINAL` holds what the slots held before `install` swapped them, stored before any was.
     let original: OpenFn = unsafe { std::mem::transmute(ORIGINAL.load(Ordering::Acquire)) };
     // SAFETY: the arguments are the ones the game passed to this call.
     let file = unsafe { original(opener, path, flags, mode) };

@@ -5,6 +5,7 @@
 - Added damage numbers for burns and other effect damage on enemies.
 - Added a square minimap shape.
 - Improved the default colors of the damage numbers.
+- Fixed the HUD edits not applying when SpiritMultiplier is installed too.
 
 ## [1.6.0] - 2026-11-18
 

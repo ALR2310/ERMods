@@ -14,7 +14,7 @@ touch the same loader?
 | Function | Use |
 |---|---|
 | `gfx::extend_numbered_placements(movie, path, prefix, count)` | Walks the instance names `path` (from the stage down) to a sprite and makes it hold `prefix0 ..= prefix{count-1}` by copying its last numbered placement. Returns `Ok(None)` when the rows already exist. |
-| `gfx::hook::install(file_name, edit)` | When the game opens the movie whose path ends in `file_name`, replaces its bytes by `edit(original)` when that is `Some`. One movie per DLL. |
+| `gfx::hook::install(file_name, edit)` | When the game opens the movie whose path ends in `file_name`, replaces its bytes by `edit(original)` when that is `Some`. One movie per DLL; DLLs chain (below). |
 
 ## Movie edit (`gfx`)
 
@@ -31,6 +31,13 @@ not a `.gfx`, truncated, path not found, fewer than two numbered rows to copy, a
   third-party UI library hooks the entry and overwrites its first 14 bytes; a pattern that began at the entry
   stopped matching once that library had loaded (log `file opener pattern not found`), so `OPENER_AOB`
   starts at the 17th byte (`OPENER_OFFSET`) and both approaches coexist.
+- **Several DLLs of ours chain.** Each detour calls what the slots held before it (`ORIGINAL`: the opener, or the
+  detour of the DLL that swapped first), so each edit works on the bytes the one before left. The DLLs do not
+  share statics, so the first one to scan for the slots publishes them in the environment variable
+  `ERMODS_GFX_OPENER_SLOTS` (the slots no longer hold the opener once swapped, so the next DLL cannot find them
+  by value), and a named mutex (`Local\ERMods_GfxHook_<pid>`) makes the installs happen one at a time. The log
+  says `after another hook` for the ones that chained. A DLL from before this (released builds) swaps without
+  publishing, so one that loads after it still finds nothing and logs `file opener slot not found (an older build of another mod may hold it)`.
 - The detour calls the original, then, if the path ends in the target name, swaps the in-memory file object's
   byte pointer and length (`+0x18`, `+0x20`). It first checks the object is readable and unused (`refcount`
   non-zero, cursor 0, valid flag 1, length 12 bytes to 64 MiB). Otherwise it logs
