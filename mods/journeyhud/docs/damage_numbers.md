@@ -113,6 +113,13 @@ always show. Seen in the log:
   game's; only that it is the player's is a guess from the timing.
 - **Sleep** takes no HP.
 
+**Packs that credit ailments to nobody.** Elden Ring Reforged credits the four ailments to nobody even when the player
+caused them (`kind` 20 to 23, handle all ones): those show as the player's own (their color, bursts big) on hostile
+enemies only (`numbers::classify`). Convergence does the same for the burst of frostbite but with no kind (`-2`, 474
+on a 7410 HP enemy): it is told by the frost proc (`stateInfo` 260, `target::fresh_proc`) that the enemy got less than
+a second before, as the buildup emptied. Convergence credits bleed to the player, as vanilla does. Burns and the procs
+of death blight and madness (`kind` -2) stay plain.
+
 Both of the first two now show as other effect damage (a burn as a number per tick, the procs of death blight and
 madness as one small number each). When two effects tick in one frame the game adds them and `kind` is the one of the larger, so the number is the
 sum in the color of that effect.
@@ -148,8 +155,10 @@ black outline, tinted with the number's color; not taken from the game).
 
 ## Diagnostics
 
-`Logging.DamageProbe` logs every hit (`Damage probe:`), the popup it made (`Damage popup:`) and the HP change of
-the target for two seconds after it. It also logs each effect result (`HP effects:`: the change, the max HP, the
-handle it is credited to, the kind) and each HP the game sets on a character (`HP write:`), with the calls on the
-stack that led to it (`damage/hp_probe.rs`, `sub_1404374E0`): a hit comes through `436BF9`, the effects through `4415B3`
-(RVAs on 2.7.2.0). The probe is off by default and writes a lot at an area load.
+`Logging.DamageProbe` writes one line per event, with characters as `you` or a short `#XXXXXX` tag (the low bits of
+the handle): `Hit N:` a hit (attacker, target, damage, HP, the inputs and reduced elements, the buildups that moved,
+the hit kind), `Hit N +Kf:` what followed it for two seconds (the target's HP, buildups and the effects that were
+added or removed), `Popup:` the number it made, `Effect tick:` each HP the effects take (the HP, the max HP, the kind,
+whom it is credited to; healing is not logged) and `HP write:` each HP the game sets on a character, with the calls on
+the stack that led to it (`damage/hp_probe.rs`, `sub_1404374E0`): a hit comes through `436BF9`, the effects through
+`4415B3` (RVAs on 2.7.2.0). The probe is off by default and writes a lot at an area load.

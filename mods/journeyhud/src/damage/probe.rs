@@ -56,8 +56,6 @@ pub(super) struct Event {
     raw: Option<[u32; 160]>,
     pub before: State,
     pub after: State,
-    flag: u8,
-    arg4: u64,
 }
 
 #[cfg(test)]
@@ -79,8 +77,6 @@ impl Event {
             raw: None,
             before: State { hp: Some(219), resist: None },
             after: State { hp: Some(0), resist: None },
-            flag: 0,
-            arg4: 0,
         }
     }
 }
@@ -99,6 +95,31 @@ impl Slot {
     const fn new() -> Self {
         Self { state: AtomicU8::new(0), event: UnsafeCell::new(MaybeUninit::uninit()) }
     }
+}
+
+/// A short name for a character handle in the log: its low 24 bits.
+pub(super) fn tag(handle: u64) -> String {
+    format!("#{:06X}", handle & 0xFF_FFFF)
+}
+
+/// `you` for the player, the tag of `handle` for anyone else.
+pub(super) fn who(handle: Option<u64>, you: bool) -> String {
+    if you { "you".to_string() } else { handle.map_or_else(|| "?".to_string(), tag) }
+}
+
+fn show<T: std::fmt::Display>(value: Option<T>) -> String {
+    value.map_or_else(|| "?".to_string(), |v| v.to_string())
+}
+
+/// The buildups whose value differs between `before` and `after`, like `  resist poison 300->82`;
+/// empty when none does.
+fn resist_change(before: Option<[i32; 7]>, after: Option<[i32; 7]>) -> String {
+    let (Some(before), Some(after)) = (before, after) else { return String::new() };
+    let changed: Vec<String> = (0..7)
+        .filter(|&i| before[i] != after[i])
+        .map(|i| format!("{} {}->{}", crate::target::BUILDUP[i], before[i], after[i]))
+        .collect();
+    if changed.is_empty() { String::new() } else { format!("  resist {}", changed.join(", ")) }
 }
 
 /// Where the character stands: the translation row of its physics matrix.
@@ -171,8 +192,6 @@ unsafe extern "C" fn observe(ctx: usize, attacker: usize, info: usize, arg4: u64
         raw,
         before,
         after: target.map(state).unwrap_or(State { hp: None, resist: None }),
-        flag,
-        arg4,
     };
     // SAFETY: CAS reserved this slot exclusively until publication.
     unsafe { (*slot.event.get()).write(event) };
@@ -283,25 +302,26 @@ impl Probe {
                 .hp
                 .zip(e.after.hp)
                 .map(|(before, after)| i64::from(before) - i64::from(after));
+            let inputs = e.components.map_or_else(String::new, |[p, m, f, l, h]| {
+                format!(
+                    "  inputs phys {p:.0} magic {m:.0} fire {f:.0} lightning {l:.0} holy {h:.0}"
+                )
+            });
+            let reduced = e.elements.map_or_else(String::new, |[f, m, l, h]| {
+                format!("  reduced fire {f} magic {m} lightning {l} holy {h}")
+            });
             logger::log(&format!(
-                "Damage probe: hit {} attacker {:?} target {:?} own {} incoming {} damage {:?} components {:?} elements {:?} hp {:?}->{:?} loss {:?} resist {:?}->{:?} hit_kind {:?} critical_candidate {:?} arg4 {} flag {}",
+                "Hit {}: {} -> {}  damage {}  hp {}->{} ({}){inputs}{reduced}{}  kind {}{}",
                 e.sequence.wrapping_add(1),
-                e.attacker,
-                e.target,
-                e.own,
-                e.incoming,
-                e.damage,
-                e.components,
-                e.elements,
-                e.before.hp,
-                e.after.hp,
-                loss,
-                e.before.resist,
-                e.after.resist,
-                e.hit_kind,
-                e.hit_kind.map(|kind| kind == 2),
-                e.arg4,
-                e.flag
+                who(e.attacker, e.own),
+                who(e.target, e.incoming),
+                show(e.damage),
+                show(e.before.hp),
+                show(e.after.hp),
+                show(loss.map(|n| -n)),
+                resist_change(e.before.resist, e.after.resist),
+                show(e.hit_kind),
+                if e.hit_kind == Some(2) { " (critical)" } else { "" },
             ));
             if let Some(raw) = e.raw.filter(|_| e.own && e.damage.is_some_and(|n| n > 0)) {
                 let words: Vec<String> = raw
@@ -311,7 +331,7 @@ impl Probe {
                     .map(|(i, word)| format!("+{:#X}={word:#X}", i * 4))
                     .collect();
                 logger::log(&format!(
-                    "Damage probe: record hit {} {}",
+                    "Hit {} record: {}",
                     e.sequence.wrapping_add(1),
                     words.join(" ")
                 ));
@@ -340,15 +360,18 @@ impl Probe {
                 && loss != 0
             {
                 logger::log(&format!(
-                    "Damage probe: gap hit {}->{} target {} hp {:?}->{:?} loss {} (before next intercepted hit)",
-                    previous.hit, hit, handle, previous.previous.hp, event.before.hp, loss
+                    "Hit {}..{}: {} lost {} HP between the two hits",
+                    previous.hit,
+                    hit,
+                    tag(handle),
+                    loss
                 ));
             }
         }
         // A short bounded list avoids following an entire crowd during the probe.
         if self.watches.len() == 8 {
             let removed = self.watches.remove(0);
-            logger::log(&format!("Damage probe: follow hit {} evicted", removed.hit));
+            logger::log(&format!("Hit {}: no longer followed", removed.hit));
         }
         self.watches.push(Watch {
             address,
@@ -365,32 +388,51 @@ impl Probe {
     fn follow(&mut self) {
         self.watches.retain_mut(|watch| {
             if memscan::read_safe::<u64>(watch.address + 8) != Some(watch.handle) {
-                logger::log(&format!("Damage probe: follow hit {} target unavailable", watch.hit));
+                logger::log(&format!("Hit {}: target gone", watch.hit));
                 return false;
             }
             let effects = effect_ids(watch.handle);
-            if effects != watch.effects {
-                logger::log(&format!(
-                    "Damage probe: follow hit {} frame {} effects of the target {effects:?}",
-                    watch.hit,
-                    watch.frames + 1
-                ));
+            if !effects.is_empty() {
+                if watch.frames > 0 && effects != watch.effects {
+                    let added: Vec<i32> =
+                        effects.iter().copied().filter(|id| !watch.effects.contains(id)).collect();
+                    let removed: Vec<i32> =
+                        watch.effects.iter().copied().filter(|id| !effects.contains(id)).collect();
+                    logger::log(&format!(
+                        "Hit {} +{}f: effects of {} added {added:?} removed {removed:?}",
+                        watch.hit,
+                        watch.frames,
+                        tag(watch.handle)
+                    ));
+                }
                 watch.effects = effects;
             }
             let current = state(watch.address);
             watch.frames += 1;
             let elapsed = watch.started.elapsed();
             let finished = watch.frames >= FOLLOW_FRAMES || elapsed >= FOLLOW_TIME;
-            let loss = watch.previous.hp.zip(current.hp)
+            let loss = watch
+                .previous
+                .hp
+                .zip(current.hp)
                 .map(|(before, after)| i64::from(before) - i64::from(after));
             if watch.frames == 1 || current.hp != watch.previous.hp || finished {
-                let delayed = watch.after_hit_hp.zip(current.hp)
+                let delayed = watch
+                    .after_hit_hp
+                    .zip(current.hp)
                     .map(|(before, after)| i64::from(before) - i64::from(after));
                 logger::log(&format!(
-                    "Damage probe: follow hit {} target {} frame {} elapsed_ms {} hp {:?}->{:?} loss {:?} since_return {:?} resist {:?}->{:?} end {}",
-                    watch.hit, watch.handle, watch.frames, elapsed.as_millis(),
-                    watch.previous.hp, current.hp, loss, delayed,
-                    watch.previous.resist, current.resist, finished
+                    "Hit {} +{}f ({} ms): {} hp {}->{} ({}), {} since the hit{}{}",
+                    watch.hit,
+                    watch.frames,
+                    elapsed.as_millis(),
+                    tag(watch.handle),
+                    show(watch.previous.hp),
+                    show(current.hp),
+                    show(loss.map(|n| -n)),
+                    show(delayed.map(|n| -n)),
+                    resist_change(watch.previous.resist, current.resist),
+                    if finished { "  (end)" } else { "" },
                 ));
             }
             watch.previous = current;

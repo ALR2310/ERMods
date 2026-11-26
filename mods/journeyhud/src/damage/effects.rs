@@ -20,6 +20,9 @@ static ACTIVE: AtomicBool = AtomicBool::new(false);
 static ORIGINAL: AtomicUsize = AtomicUsize::new(0);
 static TICKS: Ring<EffectTick, 64> = Ring::new();
 
+/// `EffectTick::causer` of a loss the game credits to nobody.
+pub const NOBODY: i64 = -1;
+
 /// What the calculation found for one character in one frame, when it was not zero.
 #[derive(Clone, Copy)]
 pub struct EffectTick {
@@ -27,7 +30,7 @@ pub struct EffectTick {
     pub owner: usize,
     pub handle: Option<u64>,
     pub max: i32,
-    /// The handle the loss is credited to, `-1` for none.
+    /// The handle the loss is credited to, [NOBODY] for none.
     pub causer: i64,
     /// The `spAttribute` of the effect: 20 poison, 21 scarlet rot, 22 blood loss, 23 frostbite; `-2` for
     /// the effects that have none (burns, the proc of death blight and madness).
@@ -100,15 +103,24 @@ pub fn drain() -> (Vec<EffectTick>, usize) {
     TICKS.drain()
 }
 
+/// The ticks that take HP, one line each: the healing of enemies would fill the log every frame.
 pub fn log(ticks: &[EffectTick], player: usize) {
-    for tick in ticks {
+    for tick in ticks.iter().filter(|tick| tick.changes[0] < 0) {
+        let kind = match tick.kind {
+            20 => " poison",
+            21 => " scarlet rot",
+            22 => " blood loss",
+            23 => " frostbite",
+            -2 => " (none)",
+            _ => "",
+        };
+        let causer =
+            if tick.causer == NOBODY { "nobody".to_string() } else { format!("{:X}", tick.causer) };
         logger::log(&format!(
-            "HP effects: {} {:?} changes {:?} max {} credited to {:X} kind {}",
-            if tick.owner == player { "player" } else { "target" },
-            tick.handle,
-            tick.changes,
+            "Effect tick: {} {} HP (max {}) kind {}{kind}, credited to {causer}",
+            super::probe::who(tick.handle, tick.owner == player),
+            tick.changes[0],
             tick.max,
-            tick.causer,
             tick.kind,
         ));
     }
