@@ -220,7 +220,8 @@ const PAGE_SIZE: usize = 0x1000;
 
 /// Every 8-byte-aligned slot in the main module's non-executable sections that holds `value`: where
 /// a function address sits in a vtable or a call table. Only readable pages are read, since a section
-/// can hold guard or no-access pages that crash the process when touched.
+/// can hold guard or no-access pages that crash the process when touched. The sections of the exe
+/// overlap, so a slot is found once per section that covers it: the result has each one once.
 pub fn find_data_pointers(value: usize) -> Vec<*mut usize> {
     let needle = value.to_le_bytes();
     let mut slots = Vec::new();
@@ -252,6 +253,8 @@ pub fn find_data_pointers(value: usize) -> Vec<*mut usize> {
             at = chunk_end.next_multiple_of(8);
         }
     }
+    slots.sort_unstable();
+    slots.dedup();
     slots
 }
 
@@ -275,7 +278,7 @@ mod tests {
         // cannot be read is touched on the way.
         static NEEDLE: usize = 0x1BAD_B002_CAFE_F00D;
         let slots = find_data_pointers(NEEDLE);
-        assert!(slots.iter().any(|&slot| std::ptr::eq(slot, &NEEDLE)));
+        assert_eq!(slots.iter().filter(|&&slot| std::ptr::eq(slot, &NEEDLE)).count(), 1);
         assert!(find_data_pointers(0x0123_4567_89AB_CDEF ^ 0x5A5A_5A5A_5A5A_5A5A).is_empty());
     }
 

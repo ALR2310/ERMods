@@ -494,6 +494,22 @@ pub fn shift_depths(
     with_sprite_body(movie, sprite, &body)
 }
 
+/// The `(x, y)`, in twips, of the placement named `name` in the sprite at `path` (the stage when `path`
+/// is empty). `PathNotFound` when there is none.
+pub fn placement_xy(movie: &[u8], path: &[&str], name: &str) -> Result<(i32, i32), GfxError> {
+    let top = parse_tags(movie, first_tag_offset(movie)?, movie.len())?;
+    let scope = if path.is_empty() { top } else { sprite_at(movie, &top, path)?.1 };
+    for tag in scope.iter().filter(|t| matches!(t.code, TAG_PLACE_OBJECT2 | TAG_PLACE_OBJECT3)) {
+        let bytes = &movie[tag.body.clone()];
+        if placed_name(tag.code, bytes)?.is_some_and(|(_, placed)| placed == name) {
+            let at = matrix_offset(tag.code, bytes)?.ok_or(GfxError::Unsupported)?;
+            let matrix = Matrix::parse(bytes, at)?.0;
+            return Ok((matrix.tx, matrix.ty));
+        }
+    }
+    Err(GfxError::PathNotFound)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -719,6 +735,18 @@ mod tests {
         )
         .unwrap();
         std::fs::write(std::env::var("ER_HUD_GFX_OUT").unwrap(), after).unwrap();
+    }
+
+    #[test]
+    fn the_place_of_a_placement_is_read_from_its_matrix() {
+        let original = movie();
+        let moved = shift_placements(&original, &PATH, &[("Item_2", 40, -300)]).unwrap();
+        let (before, after) = (
+            placement_xy(&original, &PATH, "Item_2").unwrap(),
+            placement_xy(&moved, &PATH, "Item_2").unwrap(),
+        );
+        assert_eq!(after, (before.0 + 40, before.1 - 300));
+        assert!(matches!(placement_xy(&original, &PATH, "Item_9"), Err(GfxError::PathNotFound)));
     }
 
     #[test]
