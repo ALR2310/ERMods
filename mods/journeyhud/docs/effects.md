@@ -69,6 +69,9 @@ permanent), `enableLifeTime`, `stateInfo`, `dispIconNonactive`.
   (counts in vanilla): **2 poison** (309 rows), **5 scarlet rot** (227), **6 blood loss** (284), **116 death
   blight** (210), **260 frostbite** (276), **436 sleep** (224), **437 madness** (65). Rows that cure a status have
   other values (10, 11, 12, 13, 118, 276...) and 275 is the game's internal marker (`505`).
+  Elden Ring Reforged has procs of its own, with no icon: poison is `stateInfo` 600 (80 s), scarlet rot 601 (40 s) and
+  frostbite 607 (50 s), the `SpEffectParam` rows 64 to 66. They were matched to the statuses by the order the effects
+  appeared on the target as each buildup popped, and the timers were right in game.
   `target::proc_kind` maps `stateInfo` to a `BUILDUP` index only for effects without an icon and with a time
   (`duration > 1`; permanent ones are dropped). Blood loss, madness and death blight are instant (1 s or 0) and
   are not shown.
@@ -147,8 +150,11 @@ status (same order as `BUILDUP`); it shows both the built-up part and the remain
   at x = 1260.15, y = -96.05 + 34.5 * k with scale (-1, -1) (really a 180 degree rotation: the game reports
   rotation 180 and scale +100), mirroring the gauges to the top right; the `Item` clip is the same, only its
   `Icon` child differs (position (-14.65, -0.2), scale -0.4375 instead of (-20, 0) and 0.625, so the icon is 0.7
-  times smaller). The mod does not read the root: the first time it sees a view, `place_gauge` reads the clip's
-  place with `GetDisplayInfo` (vtable +216 of the interface object; struct x, y, rotation, xscale, yscale at +0,
+  times smaller). The root is read from the HUD movie as the game opens it (`state_icons::read_root`, the
+  stage placement of `ConditionGaugeList`, which gives all three roots here). Elden Ring Reforged puts the list at
+  (240, 477.5) with the same gauge clips, so a table keyed by the clip's x put the gauge off the screen there.
+  When the movie is not seen (another hook got the file opener first) the first time the mod sees a view,
+  `place_gauge` reads the clip's place with `GetDisplayInfo` (vtable +216 of the interface object; struct x, y, rotation, xscale, yscale at +0,
   +8, +0x10, +0x18, +0x20 as `f64`, flags at +0xD4) and compares x with `LAYOUTS`: -150 is the game's (root (960,
   520)), 1260.15 is Convergence (root (557.5, 222.45)). Target = the 1080p target minus the root; then it sets
   `_x/_y`, the scale and rotation 0 (rotation through slot +224 with flag 0x04, reading the struct with

@@ -365,6 +365,10 @@ fn proc_kind(state_info: u16) -> Option<usize> {
         260 => Some(4),
         436 => Some(5),
         437 => Some(6),
+        // Elden Ring Reforged's own poison, scarlet rot and frostbite procs (`SpEffectParam` rows 64, 65, 66).
+        600 => Some(0),
+        601 => Some(1),
+        607 => Some(4),
         _ => None,
     }
 }
@@ -403,6 +407,23 @@ fn read_effects(chr: &ChrIns) -> Vec<Effect> {
             )
         })
         .collect()
+}
+
+/// The status (an index into [BUILDUP]) whose proc `chr` got less than a second ago, if any: how the
+/// burst of a status is told apart when the game credits it to nobody and gives it no kind.
+pub fn fresh_proc(chr: &ChrIns) -> Option<usize> {
+    chr.special_effect.entries().find_map(|entry| {
+        // SAFETY: `param_data` is the live param row of the entry.
+        let row = unsafe { entry.param_data?.as_ref() };
+        let kind = proc_kind(row.state_info())?;
+        // SAFETY: the entry is 0x78 bytes (asserted above); +0x44 is the time left.
+        let left = unsafe {
+            std::ptr::read_unaligned(
+                (entry as *const SpecialEffectEntry as *const u8).add(0x44) as *const f32
+            )
+        };
+        (entry.duration > 1.0 && entry.duration - left < 1.0).then_some(kind)
+    })
 }
 
 /// The status buildups of `chr`, from its resist module. The module keeps what is left to resist
@@ -475,6 +496,8 @@ mod tests {
             (Some(0), Some(1), Some(2), Some(3))
         );
         assert_eq!((proc_kind(260), proc_kind(436), proc_kind(437)), (Some(4), Some(5), Some(6)));
+        assert_eq!((proc_kind(600), proc_kind(601), proc_kind(607)), (Some(0), Some(1), Some(4)));
+        assert_eq!(proc_kind(602), None);
         // The cures (10, 11, 12...) and the game's own marker (275) are not afflictions.
         assert_eq!(
             (proc_kind(0), proc_kind(10), proc_kind(11), proc_kind(275)),

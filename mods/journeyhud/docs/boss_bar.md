@@ -115,4 +115,8 @@ bar and the effects follow. It is on with `BossBar` and needs a restart like the
 two bosses: the posture and the effect icons sit under each bar, the effects of the lowest end short of the
 rune counter.
 
+A pack that moves `BossList` on the stage (vanilla y 908, Elden Ring Reforged 989, read with `gfx::placement_y`) would
+put the lowered bar at the edge of the screen: the movie edit shortens the drop by that difference, so the bar ends at
+y 990 whatever the pack does, and `drop_px()` stays the drop from the vanilla place.
+
 The rune counter request is in [rune_counter.md](rune_counter.md).
