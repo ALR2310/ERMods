@@ -5,7 +5,10 @@
 - Added damage numbers for burns and other effect damage on enemies.
 - Added a square minimap shape.
 - Improved the default colors of the damage numbers.
+- Fixed poison, scarlet rot and frostbite timers missing with Elden Ring Reforged.
 - Fixed the HUD edits not applying when SpiritMultiplier is installed too.
+- Fixed the boss health bar sitting too low with Elden Ring Reforged.
+- Fixed your buildup gauge missing with Elden Ring Reforged.
 
 ## [1.6.0] - 2026-11-18
 

@@ -7,7 +7,7 @@
 use std::sync::atomic::{AtomicBool, AtomicU32, AtomicU64, AtomicUsize, Ordering};
 use std::time::Duration;
 
-use shared::{codepatch, logger, memscan};
+use shared::{codepatch, gfx, logger, memscan};
 
 /// The call of the update in the HUD's update function, found by the code around it (unique on
 /// 2.6.2.0 to 2.7.2.0): `mov r8,[rsi+60h]; add r8,<model>; lea rcx,[rsi+<view>]; movaps xmm1,xmm6; call`.
@@ -112,10 +112,10 @@ const SET_SCALE_AOB: &str = "48 89 5C 24 10 48 89 7C 24 18 55 48 8D 6C 24 F0 48 
 /// picture, the first gauge at (-150, 197.25) of it and the next ones 48.85 px higher; the icon is
 /// 42 px, and the bar ends 294.5 px right of the origin (measured on screenshots). The mod shrinks them and lines them up downwards instead, from a corner it is told.
 ///
-/// The mod does not read the list's root. It reads the gauge clip's own place before moving it, and
-/// from that it knows the layout the movie has (the root of a layout is fixed in the movie):
-/// `(x of the clip, root)`. Vanilla, and the Convergence pack (`01_000_fe.gfx` puts the list at the
-/// top right and mirrors the gauges with scale -1; the gauge clip itself is the same).
+/// The root comes from the movie as the game opens it ([read_root]). When the movie is not seen (another
+/// hook got the file opener first), the gauge clip's own place tells the layout instead: `(x of the clip,
+/// root)`, for vanilla and the Convergence pack (`01_000_fe.gfx` puts the list at the top right and
+/// mirrors the gauges with scale -1; the gauge clip itself is the same).
 const LAYOUTS: [(f32, [f32; 2]); 2] = [(-150.0, [960.0, 520.0]), (1260.15, [557.5, 222.45])];
 const STEP: f32 = 48.85;
 /// The bar ends this far right of the origin (294.5; the first measure, 308, left the gauge 10 px
@@ -283,6 +283,17 @@ pub unsafe fn set_clip_scale(value: *mut u8, scale: f32) -> bool {
     // SAFETY: `set_scale` is the game's function; the caller gives a live clip.
     unsafe { std::mem::transmute::<usize, SetScaleFn>(set_scale)(value, factors.as_ptr()) };
     true
+}
+
+/// Takes the root of `ConditionGaugeList` from the HUD movie, so a pack that moves the list (Elden Ring
+/// Reforged puts it at (240, 477.5) with the same gauge clips) needs no entry in [LAYOUTS].
+pub fn read_root(movie: &[u8]) {
+    let Ok((x, y)) = gfx::placement_xy(movie, &[], "ConditionGaugeList") else { return };
+    let root = [x as f32 / 20.0, y as f32 / 20.0];
+    ROOT_X.store(root[0].to_bits(), Ordering::Relaxed);
+    ROOT_Y.store(root[1].to_bits(), Ordering::Relaxed);
+    ROOT_KNOWN.store(true, Ordering::Release);
+    logger::log(&format!("Gauge: layout root ({}, {}), from the movie", root[0], root[1]));
 }
 
 /// The place of gauge `index` in its list, from the root the layout has.

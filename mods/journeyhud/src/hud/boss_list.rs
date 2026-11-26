@@ -16,9 +16,13 @@ const EXTRA_PX: f32 = 55.0;
 /// Pixels `BossBar` moves the lowest bar down: its bottom edge goes from y 876 to 990 of the 1080
 /// picture, to the height of the flask's name.
 const DROP_PX: f32 = 114.0;
+/// Where the game puts `BossList` on the stage; a pack that moves it (Elden Ring Reforged: 989) gets the drop
+/// shortened by the same amount, so the bar ends at the same place.
+const STAGE_Y_PX: f32 = 908.0;
 const TWIPS_PER_PX: f32 = 20.0;
 
-/// What [edit] changed, as `f32` bits: the added gap and the drop, in pixels (0 when it did not run).
+/// What [edit] changed, as `f32` bits: the added gap and the drop from the game's own place, in pixels
+/// (0 when it did not run).
 static EXTRA: AtomicU32 = AtomicU32::new(0);
 static DROP: AtomicU32 = AtomicU32::new(0);
 /// What `Target.BossBar` was when the movie was edited.
@@ -53,10 +57,17 @@ pub fn edit(movie: &[u8]) -> Option<Vec<u8>> {
     let drop = if settings::boss_bar() { DROP_PX } else { 0.0 };
     EDITED_WITH.store(if settings::boss_bar() { EDITED_ON } else { EDITED_OFF }, Ordering::Relaxed);
     let twips = |px: f32| (px * TWIPS_PER_PX) as i32;
+    let moved_by_pack = if settings::boss_bar() {
+        gfx::placement_xy(movie, &[], PATH[0])
+            .map_or(0.0, |(_, y)| y as f32 / TWIPS_PER_PX - STAGE_Y_PX)
+    } else {
+        0.0
+    };
+    let shift = drop - moved_by_pack;
     let shifts = [
-        ("Item_0_0", 0, twips(drop)),
-        ("Item_1_0", 0, twips(drop - extra)),
-        ("Item_2_0", 0, twips(drop - 2.0 * extra)),
+        ("Item_0_0", 0, twips(shift)),
+        ("Item_1_0", 0, twips(shift - extra)),
+        ("Item_2_0", 0, twips(shift - 2.0 * extra)),
     ];
     match gfx::shift_placements(movie, &PATH, &shifts) {
         Ok(edited) => {
