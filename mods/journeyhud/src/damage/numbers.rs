@@ -4,12 +4,12 @@ use std::sync::Mutex;
 use std::sync::atomic::{AtomicU32, Ordering};
 use std::time::{Duration, Instant};
 
-use eldenring::cs::{CSCam, CSCamera, CSMenuManImp, FieldInsHandle, WorldChrMan};
+use eldenring::cs::{CSCam, CSCamera, CSMenuManImp, ChrIns, FieldInsHandle, WorldChrMan};
 use fromsoftware_shared::FromStatic;
 use hudhook::imgui::{Context, FontId, FontSource, TextureId, Ui};
 use shared::memscan;
 
-use super::effects::EffectTick;
+use super::effects::{EffectTick, NOBODY};
 use super::probe::{Event, position};
 use crate::{settings, target, text};
 
@@ -302,14 +302,17 @@ impl Tracker {
 
     fn push(&mut self, popup: Popup) {
         if settings::damage_probe() {
+            let source = if popup.sequence > usize::MAX / 2 {
+                "effect tick".to_string()
+            } else {
+                format!("hit {}", popup.sequence.wrapping_add(1))
+            };
             shared::logger::log(&format!(
-                "Damage popup: hit {} target {} damage {} kind {:?} critical {} anchor {:?}",
-                popup.sequence.wrapping_add(1),
-                popup.handle,
+                "Popup: {source} on {} shows {} ({:?}{})",
+                super::probe::tag(popup.handle),
                 popup.label,
                 popup.kind,
-                popup.critical,
-                popup.anchor,
+                if popup.critical { ", critical" } else { "" },
             ));
         }
         if popup.row == 0
@@ -465,7 +468,9 @@ impl Tracker {
     /// ones, the bursts of bleed and frost as big ones. The effects that carry no kind and are credited to
     /// the player are burns (Black Flame and the like). What the game credits to someone else or to nobody
     /// (and the procs of death blight and madness) shows small in the color of physical damage, on hostile
-    /// enemies only.
+    /// enemies only. Some packs credit the four ailments to nobody even when the player caused them: those
+    /// show as the player's, on hostile enemies only. The burst of frostbite in a pack that gives it no kind
+    /// is told by the proc the enemy got in that moment.
     fn effect(&mut self, tick: &EffectTick, player: Option<u64>) {
         let Some(handle) = tick.handle else { return };
         if !settings::damage_effects()
@@ -475,18 +480,9 @@ impl Tracker {
         {
             return;
         }
-        let known = match tick.kind {
-            20 => Some(Kind::Poison),
-            21 => Some(Kind::Rot),
-            22 => Some(Kind::Bleed),
-            23 => Some(Kind::Frost),
-            -2 => Some(Kind::Burn),
-            _ => None,
-        };
-        let (kind, hostile) = match known.filter(|_| player == Some(tick.causer as u64)) {
-            Some(kind) => (kind, false),
-            None => (Kind::Physical, true),
-        };
+        let frost_burst =
+            tick.kind == -2 && tick.causer == NOBODY && fresh_proc_of(handle) == Some(FROST_PROC);
+        let (kind, hostile) = classify(tick, player, frost_burst);
         let burst = matches!(kind, Kind::Bleed | Kind::Frost);
         let Some(mut anchor) = enemy_position(handle, hostile) else { return };
         anchor[1] += if burst { 1.5 } else { 1.0 };
@@ -516,13 +512,44 @@ impl Tracker {
     }
 }
 
-/// Where the character with this handle stands, `None` when it is gone or, with `hostile`, is not a hostile enemy.
-fn enemy_position(handle: u64, hostile: bool) -> Option<[f32; 3]> {
+/// The kind an effect tick shows as, and whether the target has to be a hostile enemy for it to show.
+fn classify(tick: &EffectTick, player: Option<u64>, frost_burst: bool) -> (Kind, bool) {
+    let known = match tick.kind {
+        20 => Some(Kind::Poison),
+        21 => Some(Kind::Rot),
+        22 => Some(Kind::Bleed),
+        23 => Some(Kind::Frost),
+        -2 => Some(Kind::Burn),
+        _ => None,
+    };
+    match known {
+        Some(kind) if player == Some(tick.causer as u64) => (kind, false),
+        Some(kind) if tick.causer == NOBODY && (20..=23).contains(&tick.kind) => (kind, true),
+        _ if frost_burst => (Kind::Frost, true),
+        _ => (Kind::Physical, true),
+    }
+}
+
+/// Index of frostbite in `target::BUILDUP`.
+const FROST_PROC: usize = 4;
+
+/// The character with this handle, `None` when it is gone.
+fn chr_of(handle: u64) -> Option<&'static ChrIns> {
     // SAFETY: singleton access fails while the world is unavailable.
     let world = unsafe { WorldChrMan::instance() }.ok()?;
     let raw = handle.to_ne_bytes();
     let handle = memscan::read_safe::<FieldInsHandle>(raw.as_ptr() as usize)?;
-    let chr = target::chr_by_handle(world, handle)?;
+    target::chr_by_handle(world, handle)
+}
+
+/// The status whose proc the character with this handle got less than a second ago.
+fn fresh_proc_of(handle: u64) -> Option<usize> {
+    target::fresh_proc(chr_of(handle)?)
+}
+
+/// Where the character with this handle stands, `None` when it is gone or, with `hostile`, is not a hostile enemy.
+fn enemy_position(handle: u64, hostile: bool) -> Option<[f32; 3]> {
+    let chr = chr_of(handle)?;
     if hostile && !crate::radar::enemies::is_hostile(chr) {
         return None;
     }
@@ -771,6 +798,24 @@ mod tests {
         assert_eq!(tracker.popups[1].label, "50595");
         assert!(tracker.popups[1].burst() && !tracker.popups[1].dot);
         assert_ne!(tracker.popups[0].sequence, tracker.popups[1].sequence);
+    }
+
+    #[test]
+    fn ailments_credited_to_nobody_show_as_the_players_on_hostile_enemies_only() {
+        let player = Some(9);
+        assert_eq!(classify(&tick(22, 631, 9), player, false), (Kind::Bleed, false));
+        assert_eq!(classify(&tick(22, 631, NOBODY), player, false), (Kind::Bleed, true));
+        assert_eq!(classify(&tick(23, 277, NOBODY), player, false), (Kind::Frost, true));
+        assert_eq!(classify(&tick(22, 631, 5), player, false), (Kind::Physical, true));
+        // A burn or a proc credited to nobody stays plain: it is not known to be the player's.
+        assert_eq!(classify(&tick(-2, 258, NOBODY), player, false), (Kind::Physical, true));
+    }
+
+    #[test]
+    fn a_tick_without_kind_right_after_a_frost_proc_is_the_frost_burst() {
+        let player = Some(9);
+        assert_eq!(classify(&tick(-2, 474, NOBODY), player, true), (Kind::Frost, true));
+        assert_eq!(classify(&tick(-2, 474, NOBODY), player, false), (Kind::Physical, true));
     }
 
     #[test]

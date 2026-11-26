@@ -152,12 +152,12 @@ pub fn log(writes: &[HpWrite], player: usize) {
     for write in writes {
         let (Some(old), Some(max)) = (write.old, write.max) else { continue };
         let new = clamped(write.asked, max);
+        let asked =
+            if write.asked == new { String::new() } else { format!(" asked {}", write.asked) };
         logger::log(&format!(
-            "HP write: {} {:?} {old}->{new} ({:+}) asked {} max {max} callers {:X?}",
-            if write.owner == player { "player" } else { "target" },
-            write.handle,
+            "HP write: {} {old}->{new} ({:+}) of {max}{asked}, callers {:X?}",
+            super::probe::who(write.handle, write.owner == player),
             new - old,
-            write.asked,
             write.callers,
         ));
     }

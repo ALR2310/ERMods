@@ -9,6 +9,7 @@
 - Fixed the HUD edits not applying when SpiritMultiplier is installed too.
 - Fixed the boss health bar sitting too low with Elden Ring Reforged.
 - Fixed your buildup gauge missing with Elden Ring Reforged.
+- Fixed bleed and frostbite numbers showing in the wrong color with Elden Ring Reforged and Convergence.
 
 ## [1.6.0] - 2026-11-18
 
