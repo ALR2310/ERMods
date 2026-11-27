@@ -18,7 +18,7 @@ Any DLL mod loader works, e.g. [url=https://github.com/garyttierney/me3/releases
 [b]Option 1 - [url=https://github.com/garyttierney/me3/releases]Mod Engine 3[/url][/b]
 [list=1]
 [*]Download Mod Engine 3 from the link above and run its installer.[/*]
-[*]Download this mod and put [b]PassiveRunes.dll[/b] and [b]PassiveRunes.toml[/b] in a [b]natives[/b] folder, next to the profile file you create in the next step.[/*]
+[*]Download this mod and put [b]PassiveRunes.dll[/b] and [b]PassiveRunes.toml[/b] in a [b]DLLs[/b] folder, next to the profile file you create in the next step.[/*]
 [*]Create a profile file named [b]PassiveRunes.me3[/b] with this content (the path is relative to the profile file):
 [code]profileVersion = "v1"
 
@@ -26,7 +26,7 @@ Any DLL mod loader works, e.g. [url=https://github.com/garyttierney/me3/releases
 game = "eldenring"
 
 [[natives]]
-path = "natives/PassiveRunes.dll"[/code]
+path = "DLLs/PassiveRunes.dll"[/code]
 [/*]
 [*]Launch the game by double-clicking [b]PassiveRunes.me3[/b], or run [b]me3 launch -p PassiveRunes.me3[/b].[/*]
 [/list]
@@ -34,10 +34,10 @@ path = "natives/PassiveRunes.dll"[/code]
 [b]Option 2 - [url=https://github.com/soulsmods/ModEngine2/releases]Mod Engine 2[/url][/b]
 [list=1]
 [*]Download Mod Engine 2 from the link above and extract it into your game folder (the same folder as [i]eldenring.exe[/i]).[/*]
-[*]Download this mod, then create a folder to hold it and its config file - for example, inside your game folder create a [b]natives[/b] folder.[/*]
+[*]Download this mod, then create a folder to hold it and its config file - for example, inside your game folder create a [b]DLLs[/b] folder.[/*]
 [*]Open [b]config_eldenring.toml[/b] and edit [b]external_dlls = [ ][/b] to add the DLL, e.g.:
 [code]external_dlls = [
-    "natives\\PassiveRunes.dll",
+    "DLLs\\PassiveRunes.dll",
 ][/code]
 [/*]
 [*]Launch the game using Mod Engine 2's launcher, [b]modengine2_launcher.exe[/b].[/*]
