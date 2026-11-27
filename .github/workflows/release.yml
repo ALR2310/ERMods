@@ -157,8 +157,19 @@ jobs:
           gh release create "$env:GITHUB_REF_NAME" "$env:RELEASE_ZIP" --verify-tag `
             --title "$env:RELEASE_TITLE" --notes-file "$env:RELEASE_NOTES" @options
 
-      - name: Download published archive
+      - name: Link the GitHub Release
+        shell: pwsh
+        env:
+          RELEASE_TAG: ${{ steps.package.outputs.release_tag }}
+        run: |
+          "[GitHub Release]($env:GITHUB_SERVER_URL/$env:GITHUB_REPOSITORY/releases/tag/$env:RELEASE_TAG)" |
+            Add-Content -LiteralPath $env:GITHUB_STEP_SUMMARY
+
+      # Only when the release already exists (a re-run or a retry tag): the build was skipped, so the
+      # archive is the one the release holds. Otherwise the Nexus step uses the archive built above.
+      - name: Download the published archive
         id: download
+        if: steps.github-release.outputs.exists == 'true'
         shell: pwsh
         env:
           GH_TOKEN: ${{ github.token }}
@@ -169,8 +180,6 @@ jobs:
           gh release download "$env:RELEASE_TAG" --pattern "$env:RELEASE_ASSET" --dir "$dir"
           if ($LASTEXITCODE -ne 0) { throw 'Could not download the published GitHub Release archive.' }
           "archive=$(Join-Path $dir $env:RELEASE_ASSET)" | Add-Content -LiteralPath $env:GITHUB_OUTPUT
-          "[GitHub Release]($env:GITHUB_SERVER_URL/$env:GITHUB_REPOSITORY/releases/tag/$env:RELEASE_TAG)" |
-            Add-Content -LiteralPath $env:GITHUB_STEP_SUMMARY
 
       - name: Publish to Nexus and verify
         if: env.RELEASE_TEST != 'true'
@@ -179,7 +188,7 @@ jobs:
           NEXUS_API_KEY: ${{ secrets.NEXUS_API_KEY }}
           RELEASE_CRATE: ${{ steps.package.outputs.crate }}
           RELEASE_VERSION: ${{ steps.package.outputs.version }}
-          RELEASE_ARCHIVE: ${{ steps.download.outputs.archive }}
+          RELEASE_ARCHIVE: ${{ steps.download.outputs.archive || steps.build.outputs.path }}
         run: |
           $options = @()
           if ($env:RELEASE_NEXUS_TEST -eq 'true') { $options = @('--test-nexus') }
