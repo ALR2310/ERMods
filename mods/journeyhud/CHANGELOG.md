@@ -2,6 +2,8 @@
 
 ## [Unreleased]
 
+## [1.7.0] - 2026-11-27
+
 - Added damage numbers for burns and other effect damage on enemies.
 - Added a square minimap shape.
 - Added a notice on the title screen when a new version is out.
