@@ -1,5 +1,6 @@
-//! "A new version is out" notice. One small HTTPS request reads `version.json` from the project's
-//! public repository when the mod starts, in the background. The menu host takes title-screen text
+//! "A new version is out" notice. One small HTTPS request asks GitHub for the release tags of the mod
+//! (`<crate>-v<version>`, the ones the release workflow pushes) when the mod starts, in the background.
+//! The menu host takes title-screen text
 //! (the only place the player sees the notice) while the game starts, so [`notice`] waits briefly
 //! for the answer before the menu is built. Without the host the result is only logged.
 
@@ -9,12 +10,14 @@ use std::time::Duration;
 
 use crate::logger;
 
-const HOST: &str = "raw.githubusercontent.com";
-const PATH: &str = "/ALR2310/ERMods/main/version.json";
+const HOST: &str = "api.github.com";
+/// The refs whose names start with `<crate>-v`; the tags of the test releases carry a `test/` or
+/// `test-nexus/` prefix and are not among them.
+const TAGS_PATH: &str = "/repos/ALR2310/ERMods/git/matching-refs/tags/";
 /// Per step of the request; [`notice`] waits much less than that.
 const TIMEOUT_MS: i32 = 5000;
-/// `version.json` lists a few mods; anything larger is not ours.
-const MAX_BODY: usize = 16 * 1024;
+/// About 350 bytes a tag; anything larger is not what we asked for.
+const MAX_BODY: usize = 128 * 1024;
 const MAX_VERSION_LEN: usize = 20;
 
 #[link(name = "winhttp")]
@@ -100,12 +103,12 @@ fn wide(text: &str) -> Vec<u16> {
     text.encode_utf16().chain(std::iter::once(0)).collect()
 }
 
-/// The body of `https://{HOST}{PATH}`, or why it could not be read.
-fn download() -> Result<Vec<u8>, String> {
+/// The body of `https://{HOST}{path}`, or why it could not be read.
+fn download(path: &str) -> Result<Vec<u8>, String> {
     let agent = wide("ERMods update check");
     let host = wide(HOST);
     let verb = wide("GET");
-    let path = wide(PATH);
+    let path = wide(path);
     // SAFETY: every string is NUL-terminated and outlives the calls; handles are closed by `Handle`.
     unsafe {
         let session = Handle::new(
@@ -196,11 +199,20 @@ pub fn is_newer(latest: &str, current: &str) -> bool {
     a > b
 }
 
-/// The version of `key` in the body of `version.json`.
+/// The highest version among the `refs/tags/<key>-v<version>` refs of `body`, the answer to the
+/// request for the tags of `key`.
 fn latest_in(body: &[u8], key: &str) -> Option<String> {
-    let value: serde_json::Value = serde_json::from_slice(body).ok()?;
-    let version = value.get(key)?.as_str()?;
-    valid_version(version).then(|| version.to_string())
+    let refs: serde_json::Value = serde_json::from_slice(body).ok()?;
+    let prefix = format!("refs/tags/{key}-v");
+    refs.as_array()?
+        .iter()
+        .filter_map(|entry| entry.get("ref")?.as_str()?.strip_prefix(&prefix))
+        .filter(|version| valid_version(version))
+        .fold(None, |best: Option<&str>, version| match best {
+            Some(best) if !is_newer(version, best) => Some(best),
+            _ => Some(version),
+        })
+        .map(str::to_string)
 }
 
 /// `None` until the request has finished, then the line for the title screen (or `None` again
@@ -210,9 +222,9 @@ static RESULT: (Mutex<Option<Option<String>>>, Condvar) = (Mutex::new(None), Con
 /// Starts the check in the background; call once, as early as possible.
 pub fn spawn(key: &'static str, display_name: &'static str, current: &'static str) {
     std::thread::spawn(move || {
-        let latest = download()
+        let latest = download(&format!("{TAGS_PATH}{key}-v"))
             .and_then(|body| {
-                latest_in(&body, key).ok_or_else(|| format!("no version for {key} in version.json"))
+                latest_in(&body, key).ok_or_else(|| format!("no release tag for {key}"))
             })
             .inspect_err(|reason| logger::log(&format!("Update check failed: {reason}.")))
             .ok();
@@ -267,11 +279,28 @@ mod tests {
     }
 
     #[test]
-    fn the_version_of_a_mod_is_read_from_the_json() {
-        let body = br#"{ "spiritmultiplier": "1.7.0", "autoregen": "2.6.2" }"#;
-        assert_eq!(latest_in(body, "autoregen").as_deref(), Some("2.6.2"));
+    fn the_latest_version_is_the_highest_tag_of_the_mod() {
+        let body = br#"[
+            { "ref": "refs/tags/spiritmultiplier-v1.6.0" },
+            { "ref": "refs/tags/spiritmultiplier-v1.10.0" },
+            { "ref": "refs/tags/spiritmultiplier-v1.9.9" }
+        ]"#;
+        assert_eq!(latest_in(body, "spiritmultiplier").as_deref(), Some("1.10.0"));
+    }
+
+    #[test]
+    fn other_mods_and_test_tags_do_not_count() {
+        let body = br#"[
+            { "ref": "refs/tags/spiritmultiplier-v1.7.0" },
+            { "ref": "refs/tags/spiritmultiplier-v9.9.9-retry1" },
+            { "ref": "refs/tags/spiritmultiplier-vevil text" },
+            { "ref": "refs/tags/test/spiritmultiplier-v8.0.0" },
+            { "ref": "refs/tags/autoregen-v2.7.0" }
+        ]"#;
+        assert_eq!(latest_in(body, "spiritmultiplier").as_deref(), Some("1.7.0"));
+        assert_eq!(latest_in(body, "autoregen").as_deref(), Some("2.7.0"));
         assert_eq!(latest_in(body, "missing"), None);
-        assert_eq!(latest_in(br#"{ "x": "evil text" }"#, "x"), None);
+        assert_eq!(latest_in(b"[]", "x"), None);
         assert_eq!(latest_in(b"not json", "x"), None);
     }
 }

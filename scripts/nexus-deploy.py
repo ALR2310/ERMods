@@ -40,8 +40,6 @@ NEXUS_MODS = ROOT / ".github" / "nexus-mods.json"
 NEXUS_TEST_MOD = {"id": 11735, "internalId": "18610093305303"}
 # What the test mod may be: not listed at all, or hidden. A listed mod is never a test target.
 NEXUS_TEST_STATUSES = ("not_published", "hidden")
-# Public list of the latest version of each mod; the mods read it from the repository to tell players.
-VERSIONS = ROOT / "version.json"
 API = "https://api.nexusmods.com"
 USER_AGENT = "ermods-deploy"
 
@@ -344,11 +342,7 @@ def main():
         entry["deploys"].append({"version": version, "commit": commit, "file": str(chosen["id"]),
                                  "category": args.category})
     MANIFEST.write_text(json.dumps(manifest, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
-    if main_file:
-        versions = json.loads(VERSIONS.read_text(encoding="utf-8")) if VERSIONS.exists() else {}
-        versions[args.crate] = version
-        VERSIONS.write_text(json.dumps(versions, indent=2) + "\n", encoding="utf-8", newline="\n")
-    else:
+    if not main_file:
         print(f"published  https://www.nexusmods.com/eldenring/mods/{entry['id']}")
         return
     try:
