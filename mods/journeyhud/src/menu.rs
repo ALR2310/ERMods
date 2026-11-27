@@ -316,6 +316,7 @@ fn t(key: &str) -> String {
 }
 
 fn build(b: &mut MenuBuilder) -> Result<(), String> {
+    b.add_update_notice();
     let root = b.submenu(b.root(), "Journey HUD", &t("mod.help"))?;
     let target = b.submenu(root, &t("target_page.title"), &t("target_page.help"))?;
     let minimap = b.submenu(root, &t("minimap_page.title"), &t("minimap_page.help"))?;
@@ -640,6 +641,7 @@ fn build(b: &mut MenuBuilder) -> Result<(), String> {
 /// Registers the menu on a worker thread. Must start early: the host closes
 /// registration shortly after startup.
 pub fn start(hmodule: u64) {
+    shared::update_check::spawn("journeyhud", "Journey HUD", env!("CARGO_PKG_VERSION"));
     menu::start_saver(config::save, None);
     menu::spawn_menu(&MENU, hmodule, "journey-hud", "Journey HUD", build);
 }

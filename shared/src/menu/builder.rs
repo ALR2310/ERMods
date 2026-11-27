@@ -8,6 +8,9 @@ use super::host::{Provider, Registration, connect};
 use super::settings::{ColorSetting, NumberSetting, Setting, TextSetting, setting_changed};
 use crate::logger;
 
+/// Green, so the notice stands out from the title screen's own white text.
+const UPDATE_NOTICE_COLOR: u32 = 0x5FD35F;
+
 type ByteReader = fn() -> u8;
 type NumberReader = fn() -> f64;
 type TextReader = fn() -> String;
@@ -74,6 +77,17 @@ impl MenuBuilder {
     /// The underlying provider, for a row the helpers below do not cover.
     pub fn provider(&self) -> &Provider {
         &self.provider
+    }
+
+    /// The "a new version is out" line at the bottom left of the title screen, when the check started
+    /// by [`crate::update_check::spawn`] found one. Call it first in the build: the host takes title
+    /// text only while the menu is registered.
+    pub fn add_update_notice(&self) {
+        let Some(notice) = crate::update_check::notice(Duration::from_millis(1500)) else { return };
+        if let Err(reason) = self.provider.add_title_text_bottom_left(&notice, UPDATE_NOTICE_COLOR)
+        {
+            logger::log(&format!("Menu: update notice not shown ({reason})"));
+        }
     }
 
     /// A row on `parent` that opens a page titled `name`; returns that page.
