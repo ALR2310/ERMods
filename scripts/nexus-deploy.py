@@ -40,6 +40,10 @@ NEXUS_MODS = ROOT / ".github" / "nexus-mods.json"
 NEXUS_TEST_MOD = {"id": 11735, "internalId": "18610093305303"}
 # What the test mod may be: not listed at all, or hidden. A listed mod is never a test target.
 NEXUS_TEST_STATUSES = ("not_published", "hidden")
+# Nexus takes the new file as the mod's main file a few minutes after it accepts it (the version is
+# first, main_file_version up to about ten minutes later): the check waits that long before it fails.
+PRIMARY_WAIT_SECONDS = 900
+PRIMARY_POLL_SECONDS = 15
 API = "https://api.nexusmods.com"
 USER_AGENT = "ermods-deploy"
 
@@ -247,13 +251,20 @@ def nexus_release(entry, version, lines, key, archive, *, test_name=None):
         raise Fail(f"Nexus mod {entry['id']} does not contain file {name} version {version}")
     if test_name and mod["status"] not in NEXUS_TEST_STATUSES:
         raise Fail("The Nexus test mod is no longer unpublished or hidden")
-    primary = mod["main_file_version"] or {}
-    is_primary = released.get("is_primary") if test_name else (
-        primary.get("id") == released["id"] and primary.get("is_primary")
-    )
-    if (released["category"] != "main" or mod["version"] != version
-            or not is_primary):
-        raise Fail(f"Nexus has {version}, but it is not the active primary main release")
+    deadline = time.monotonic() + PRIMARY_WAIT_SECONDS
+    while True:
+        primary = mod["main_file_version"] or {}
+        is_primary = released.get("is_primary") if test_name else (
+            primary.get("id") == released["id"] and primary.get("is_primary")
+        )
+        if released["category"] == "main" and mod["version"] == version and is_primary:
+            break
+        if time.monotonic() >= deadline:
+            raise Fail(f"Nexus has {version}, but it is not the active primary main release")
+        print(f"Waiting for Nexus to make {version} the primary main release", flush=True)
+        time.sleep(PRIMARY_POLL_SECONDS)
+        mod = call("GET", mod_url, key)["data"]
+        released = nexus_file_version(key, file_url, version) or released
     if archive and (released["size_in_bytes"] != archive.stat().st_size or released["name"] != name):
         raise Fail(f"Nexus version {version} does not match the release archive size or name")
 
