@@ -10,7 +10,7 @@ in .local/manifest.json (id, internalId, crate, deploys).
 
 Use `--archive PATH` to publish the existing GitHub Release asset using .github/nexus-mods.json,
 or `--verify-only` to read back the released file, mod version and changelog from Nexus.
-`--test-nexus` directs either mode to the unpublished test mod.
+`--test-nexus` directs either mode to the unpublished or hidden test mod.
 
 The zip goes to the main mod file of the manifest. `--category optional` (or `miscellaneous`) puts it
 on another mod file instead (`--file-id` is then required): it is not the mod manager's default download,
@@ -38,6 +38,8 @@ ROOT = Path(__file__).resolve().parents[1]
 MANIFEST = ROOT / ".local" / "manifest.json"
 NEXUS_MODS = ROOT / ".github" / "nexus-mods.json"
 NEXUS_TEST_MOD = {"id": 11735, "internalId": "18610093305303"}
+# What the test mod may be: not listed at all, or hidden. A listed mod is never a test target.
+NEXUS_TEST_STATUSES = ("not_published", "hidden")
 # Public list of the latest version of each mod; the mods read it from the repository to tell players.
 VERSIONS = ROOT / "version.json"
 API = "https://api.nexusmods.com"
@@ -202,8 +204,8 @@ def nexus_release(entry, version, lines, key, archive, *, test_name=None):
     mod_url = f"{API}/v3/mods/{entry['internalId']}"
     notes_url = f"{API}/v1/games/eldenring/mods/{entry['id']}/changelogs.json"
     mod = call("GET", mod_url, key)["data"]
-    if test_name and (mod["status"] != "not_published" or str(mod["game_scoped_id"]) != str(entry["id"])):
-        raise Fail("The Nexus test target must be the configured unpublished mod")
+    if test_name and (mod["status"] not in NEXUS_TEST_STATUSES or str(mod["game_scoped_id"]) != str(entry["id"])):
+        raise Fail("The Nexus test target must be the configured unpublished or hidden mod")
     files = call("GET", f"{mod_url}/files", key)["data"]["mod_files"]
     if test_name:
         name = test_name
@@ -245,8 +247,8 @@ def nexus_release(entry, version, lines, key, archive, *, test_name=None):
             time.sleep(3)
     if not released:
         raise Fail(f"Nexus mod {entry['id']} does not contain file {name} version {version}")
-    if test_name and mod["status"] != "not_published":
-        raise Fail("The Nexus test mod is no longer unpublished")
+    if test_name and mod["status"] not in NEXUS_TEST_STATUSES:
+        raise Fail("The Nexus test mod is no longer unpublished or hidden")
     primary = mod["main_file_version"] or {}
     is_primary = released.get("is_primary") if test_name else (
         primary.get("id") == released["id"] and primary.get("is_primary")
@@ -284,7 +286,7 @@ def main():
     mode = parser.add_mutually_exclusive_group()
     mode.add_argument("--archive", type=Path, help="publish an existing GitHub Release ZIP")
     mode.add_argument("--verify-only", action="store_true", help="verify the Nexus main release")
-    parser.add_argument("--test-nexus", action="store_true", help="use the unpublished Nexus test mod")
+    parser.add_argument("--test-nexus", action="store_true", help="use the unpublished or hidden Nexus test mod")
     args = parser.parse_args()
 
     github_release = args.archive is not None or args.verify_only
